@@ -30,16 +30,16 @@ jobs:
     env:
       GODOT_VERSION: 4.3-stable
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: "17"
 
       - name: Restore Godot and its export templates
         id: godot
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ${{ runner.temp }}\godot
           key: godot-${{ env.GODOT_VERSION }}-windows-android-1
@@ -57,7 +57,7 @@ jobs:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
         run: ./ci/build.ps1 -GodotDir "$env:RUNNER_TEMP\godot"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: Lanternfall
           path: |
@@ -67,7 +67,7 @@ jobs:
 
       - name: Attach the builds to the release
         if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: |
             build/Lanternfall.exe
