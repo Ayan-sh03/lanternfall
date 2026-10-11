@@ -8,7 +8,11 @@
 param(
 	[Parameter(Mandatory = $true)][string]$GodotDir,
 	[string]$AndroidSdk = $env:ANDROID_HOME,
-	[string]$JavaHome = $env:JAVA_HOME
+	[string]$JavaHome = $env:JAVA_HOME,
+	# Stamped into both builds when given, e.g. -VersionName 1.0.7 -VersionCode 7.
+	# Android only accepts an update whose version code is higher than the installed one.
+	[string]$VersionName = "",
+	[int]$VersionCode = 0
 )
 $ErrorActionPreference = "Stop"
 
@@ -65,6 +69,21 @@ if ($env:ANDROID_KEYSTORE_BASE64) {
 }
 $env:GODOT_ANDROID_KEYSTORE_RELEASE_PATH = Slash $releaseKey
 
+# --- Version numbers -------------------------------------------------------------
+if ($VersionName) {
+	$presets = Join-Path $repo "export_presets.cfg"
+	$text = Get-Content $presets -Raw
+	$text = $text -replace '(?m)^version/name=".*"$', "version/name=`"$VersionName`""
+	if ($VersionCode -gt 0) { $text = $text -replace '(?m)^version/code=\d+$', "version/code=$VersionCode" }
+	if ($VersionName -match '^\d+(\.\d+){0,3}$') {
+		# Windows wants exactly four numbers.
+		$four = (($VersionName.Split(".") + "0", "0", "0") | Select-Object -First 4) -join "."
+		$text = $text -replace '(?m)^application/(file|product)_version=".*"$', "application/`$1_version=`"$four`""
+	}
+	Set-Content -Path $presets -Value $text -NoNewline -Encoding utf8
+	Write-Host "Version $VersionName (code $VersionCode)"
+}
+
 # --- Check, then export ----------------------------------------------------------
 function Invoke-Godot([string[]]$GodotArgs, [string]$What) {
 	Write-Host "::group::$What"
@@ -96,3 +115,8 @@ if ($LASTEXITCODE -ne 0) { throw "The APK signature does not verify" }
 Remove-Item (Join-Path $build "*.idsig"), $releaseKey -ErrorAction SilentlyContinue
 
 Get-Item $exe, $apk | ForEach-Object { "{0,8:N1} MB  {1}" -f ($_.Length / 1MB), $_.Name }
+
+# What the finished files say about themselves.
+$aapt = Join-Path (Split-Path $apksigner) "aapt2.exe"
+(& $aapt dump badging $apk | Select-String "^package:").Line -replace " platformBuild.*", ""
+"exe: version " + (Get-Item $exe).VersionInfo.FileVersion
