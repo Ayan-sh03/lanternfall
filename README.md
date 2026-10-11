@@ -1,0 +1,69 @@
+# Lanternfall
+
+A top-down action dungeon crawler about the last lamplighter of a town that has never seen the sun. The Lantern has gone out, the dark is pressing at the windows, and Wren goes down after it with a lantern-staff and a flask of oil.
+
+Built with Godot 4.3 for Windows and Android.
+
+![Lanternfall key art](trailer/key1.png)
+
+## Download
+
+Get the latest build from the [Releases page](https://github.com/Ayan-sh03/lanternfall/releases/latest).
+
+- **Windows:** download `Lanternfall.exe` and run it. It is a single file; nothing to install. Needs 64-bit Windows and a graphics driver with OpenGL 3.3.
+- **Android:** download `Lanternfall.apk` on the phone and open it, allowing installs from your browser or file manager when asked. Needs Android 5.0 or later on a 64-bit ARM device.
+
+## The game
+
+- Seven depths, from the Lamp Cellars down to the Heartforge, each generated fresh for every descent.
+- Six kinds of monster, elites that seal the stairs, and one Warden at the bottom.
+- A three-hit staff combo, ember bolts that burn lamp oil, and a dash.
+- Twenty-three kindlings to choose between as you level up, and relic powers found on the way down.
+- Wayside lamps that heal you and save the run. Three save slots, and any depth you have reached can be started from again.
+- Writings and plaques that tell what happened to the keepers, and two endings.
+
+## Controls
+
+| | Keyboard and mouse | Touch |
+|---|---|---|
+| Move | `W` `A` `S` `D` | Left thumb, anywhere on the left half |
+| Aim | Mouse | Automatic; drag off STRIKE or BOLT to aim by hand |
+| Strike | Left click (third strike is heavy) | Hold STRIKE |
+| Ember bolt | Right click | Hold BOLT |
+| Dash | `Space` | DASH |
+| Relic powers | `Q` `R` `F` | Their stones, once found |
+| Interact | `E` | The stone that appears beside a chest, lamp or stair |
+| Pause | `Esc` | Pause stone, or the back gesture |
+
+On desktop, `F11` toggles fullscreen and `M` mutes. The pause screen has switches for sound, a frame-rate readout and a faster, softer picture for weak graphics chips.
+
+## Running from source
+
+Install [Godot 4.3](https://godotengine.org/download/archive/4.3-stable/), then either open this folder in the editor and press play, or run:
+
+```
+godot --path .
+```
+
+Everything is loaded at run time, so there is no import step. All game code is in `scripts/`; the pixel art is drawn in code by `scripts/art.gd`.
+
+## Building
+
+Every push to `main` is built by GitHub Actions (`.github/workflows/build.yml`), which exports the Windows `.exe` and the signed Android `.apk` and publishes them as a release. The scripts it runs are in `ci/`.
+
+The `.bat` files in the repository root (`Build Windows.bat`, `Build Android.bat`, `Install on Android.bat`) do the same locally, but they contain paths for the author's machine; change the paths at the top of each before using them. Building for Android also needs a JDK, the Android SDK and a signing key.
+
+## Releasing
+
+A release is published automatically for every build of `main`, named `v1.0.<build number>`. To publish under a version of your own choosing, push a tag that starts with `v`:
+
+```
+git tag v1.1
+git push origin v1.1
+```
+
+## Credits and licence
+
+The code and the original pixel art are released under the [MIT License](LICENSE).
+
+The music and sound effects are CC0 recordings from OpenGameArt and Kenney, and the fonts (New Rocker and Jersey 10) are under the SIL Open Font License. They keep their own licences; the full list with authors and sources is in [CREDITS.txt](CREDITS.txt).
