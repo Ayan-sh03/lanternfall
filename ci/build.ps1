@@ -120,3 +120,5 @@ Get-Item $exe, $apk | ForEach-Object { "{0,8:N1} MB  {1}" -f ($_.Length / 1MB), 
 $aapt = Join-Path (Split-Path $apksigner) "aapt2.exe"
 (& $aapt dump badging $apk | Select-String "^package:").Line -replace " platformBuild.*", ""
 "exe: version " + (Get-Item $exe).VersionInfo.FileVersion
+# The fingerprint of the key the APK was signed with (public, safe to show).
+(& $apksigner verify --print-certs $apk | Select-String "SHA-256 digest").Line
