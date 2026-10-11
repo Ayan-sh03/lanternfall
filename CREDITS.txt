@@ -26,6 +26,8 @@ depth1.ogg   "Cursed Tower Veranda"                bobjt          opengameart.or
 depth2.ogg   "Dungeon Theme"                       katana         opengameart.org/content/dungeon-theme-0
 depth3.ogg   "Dark Cavern Ambient" (001)           Paul Wortmann  opengameart.org/content/dark-cavern-ambient
 depth4.ogg   "Dark Cavern Ambient" (002)           Paul Wortmann  opengameart.org/content/dark-cavern-ambient
+depth5.ogg   "Dark Shrine Loop"                    yd (published by qubodup)  opengameart.org/content/dark-shrine-loop
+depth6.ogg   "Heavy Dungeon"                       MintoDog       opengameart.org/content/heavy-dungeon
 forge.ogg    "Evil Temple Ambiance Loop"           Brandon Morris opengameart.org/content/evil-temple-ambiance-loop
 boss.ogg     "Epic Boss Battle [Seamlessly Looping]"  Juhani Junkala (SubspaceAudio)  opengameart.org/content/boss-battle-music
 keep.ogg     "I Want To Go Home"                   eldritch-grim  opengameart.org/content/i-want-to-go-home
