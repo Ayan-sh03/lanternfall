@@ -4,3 +4,5 @@
 *.ogg binary
 *.ttf binary
 *.png binary
+*.ico binary
+*.ps1 text eol=lf

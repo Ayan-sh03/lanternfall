@@ -17,21 +17,35 @@ var boss_seen := false
 var slot := 0
 var pending_depth := 1
 ## Depths reached at least once (for the depth-select screen) and endings seen.
-var profile := {"max_depth": 1, "endings": [false, false]}
+var profile := {"max_depth": 1, "endings": [false, false], "sound": true, "haptics": true, "fps": false,
+	"fast": false, "auto_fast": false}
 ## Test and recording runs switch this off so they never touch the player's progress.
 var persist := true
+## True on phones and tablets (or with --touch, for trying the pad on a desktop).
+var touch := false
+var perf_ms := 0
+var perf_n := 0
+var perf_bad := 0
 
 
 func _ready() -> void:
 	randomize()
 	Art.build()
 	get_window().title = "Lanternfall"
-	_set_icon()
-	Input.set_custom_mouse_cursor(Art.cursor(), Input.CURSOR_ARROW, Vector2(16, 16))
+	touch = OS.has_feature("mobile") or OS.get_cmdline_user_args().has("--touch")
+	if touch:
+		# The HUD turns touches into clicks itself, one finger at a time.
+		Input.emulate_mouse_from_touch = false
+	else:
+		Input.set_custom_mouse_cursor(Art.cursor(), Input.CURSOR_ARROW, Vector2(16, 16))
+	if not OS.has_feature("mobile"):
+		_set_icon()
 	_load_profile()
 	hud = HudS.new()
 	hud.main = self
+	hud.touch = touch
 	add_child(hud)
+	apply_options()
 	hud.show_title()
 	Sfx.play_music("title")
 	if OS.get_cmdline_user_args().has("--showcase"):
@@ -60,7 +74,54 @@ func _input(ev: InputEvent) -> void:
 			var full := DisplayServer.window_get_mode() == DisplayServer.WINDOW_MODE_FULLSCREEN
 			DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED if full else DisplayServer.WINDOW_MODE_FULLSCREEN)
 		elif ev.physical_keycode == KEY_M:
-			Sfx.muted = not Sfx.muted
+			profile["sound"] = not profile["sound"]
+			apply_options()
+			_save_profile()
+
+
+func _notification(what: int) -> void:
+	if hud == null:
+		return
+	var playing: bool = game != null and hud.modal == "" and not game.dead and not game.bot
+	if what == NOTIFICATION_WM_GO_BACK_REQUEST:
+		# The phone's back gesture pauses, and un-pauses.
+		if hud.modal == "pause":
+			hud._close_modal()
+		elif playing:
+			hud.show_pause()
+	elif what == NOTIFICATION_APPLICATION_PAUSED and touch and playing:
+		hud.show_pause()
+
+
+## Sound, and how the picture is drawn. "Fast" draws the whole frame at 720 lines
+## and scales it up: softer, but far less work for a weak graphics chip.
+func apply_options() -> void:
+	Sfx.muted = not profile["sound"]
+	get_window().content_scale_mode = Window.CONTENT_SCALE_MODE_VIEWPORT if profile["fast"] \
+		else Window.CONTENT_SCALE_MODE_CANVAS_ITEMS
+
+
+## A phone that cannot hold the pace at full sharpness is dropped to the fast
+## picture, once, rather than left to stutter. The pause screen switches it back.
+func _process(_dt: float) -> void:
+	if not touch or profile["fast"] or profile["auto_fast"] or game == null or hud.blocking():
+		perf_n = 0
+		return
+	var now := Time.get_ticks_msec()
+	if perf_n == 0:
+		perf_ms = now
+	perf_n += 1
+	if now - perf_ms < 5000:
+		return
+	var fps := perf_n * 1000.0 / (now - perf_ms)
+	perf_n = 0
+	perf_bad = perf_bad + 1 if fps < 48.0 else 0
+	if perf_bad >= 2:
+		profile["fast"] = true
+		profile["auto_fast"] = true
+		apply_options()
+		_save_profile()
+		hud.say("The picture is now set to fast, to keep the pace. The pause screen can change it back.", 6.0, hud.C_EMBER)
 
 
 # --- Save files -----------------------------------------------------------------
@@ -130,6 +191,9 @@ func _load_profile() -> void:
 		var e = data.get("endings", [false, false])
 		if e is Array and e.size() == 2:
 			profile["endings"] = [bool(e[0]), bool(e[1])]
+		for k in ["sound", "haptics", "fps", "fast", "auto_fast"]:
+			if data.has(k):
+				profile[k] = bool(data[k])
 
 
 func _save_profile() -> void:

@@ -100,6 +100,8 @@ var bolt_cd := 0.0
 var atk_buf := 0.0
 var bolt_buf := 0.0
 var dash_buf := 0.0
+## The on-screen pad when playing by touch; null with keyboard and mouse.
+var pad = null
 var dash_cd := 0.0
 var dash_t := 0.0
 var dash_dir := Vector2.RIGHT
@@ -173,6 +175,7 @@ var bot_bolt := false
 ## so Wren arrives with the kit she would plausibly have by then.
 func start(d: int, restore: Dictionary = {}, prepared: bool = false) -> void:
 	rng.randomize()
+	pad = hud.pad
 	_build_nodes()
 	if not restore.is_empty():
 		_apply_save(restore)
@@ -821,7 +824,7 @@ func _process(dt: float) -> void:
 func _unhandled_input(ev: InputEvent) -> void:
 	if hud == null or hud.blocking() or dead or bot:
 		return
-	if ev is InputEventMouseButton and ev.pressed:
+	if pad == null and ev is InputEventMouseButton and ev.pressed:
 		if ev.button_index == MOUSE_BUTTON_LEFT:
 			atk_buf = 0.22
 		elif ev.button_index == MOUSE_BUTTON_RIGHT:
@@ -881,15 +884,22 @@ func _update_player(dt: float) -> void:
 	else:
 		mv.x = float(_key(KEY_D) or _key(KEY_RIGHT)) - float(_key(KEY_A) or _key(KEY_LEFT))
 		mv.y = float(_key(KEY_S) or _key(KEY_DOWN)) - float(_key(KEY_W) or _key(KEY_UP))
-		var m := get_global_mouse_position() - pcenter()
-		if m.length() > 2.0:
-			aim = m.normalized()
-		if input_lock <= 0.0:
-			want_atk = Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT) or atk_buf > 0.0
-			want_bolt = Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT) or bolt_buf > 0.0
+		if pad != null:
+			mv += pad.move
+			if input_lock <= 0.0:
+				want_atk = pad.atk or atk_buf > 0.0
+				want_bolt = pad.bolt or bolt_buf > 0.0
+			_touch_aim(mv, want_atk, want_bolt)
+		else:
+			var m := get_global_mouse_position() - pcenter()
+			if m.length() > 2.0:
+				aim = m.normalized()
+			if input_lock <= 0.0:
+				want_atk = Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT) or atk_buf > 0.0
+				want_bolt = Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT) or bolt_buf > 0.0
 		if dash_buf > 0.0 and dash_stock > 0 and dash_t <= 0.0:
 			try_dash()
-	mv = mv.normalized()
+	mv = mv.limit_length(1.0)
 	last_mv = mv
 
 	if dash_t > 0.0:
@@ -950,6 +960,30 @@ func _update_player(dt: float) -> void:
 	for l in lights:
 		var off: Vector2 = l.global_position - cam.position
 		l.enabled = absf(off.x) < reach.x and absf(off.y) < reach.y
+
+
+## Touch play has no cursor. A thumb dragged off STRIKE or BOLT aims by hand;
+## otherwise a blow turns toward the nearest foe in sight, and Wren faces the
+## way she walks.
+func _touch_aim(mv: Vector2, striking: bool, casting: bool) -> void:
+	if pad.aiming:
+		aim = pad.aim
+		return
+	if striking or casting:
+		var best = null
+		var bd: float = 62.0 * stats["reach"] if striking else 250.0
+		for e in enemies:
+			if e.dead or not e.visible:
+				continue
+			var d: float = (e.center() - pcenter()).length() - e.hit_r
+			if d < bd and los(pcenter(), e.center()):
+				bd = d
+				best = e
+		if best != null:
+			aim = (best.center() - pcenter()).normalized()
+			return
+	if mv.length() > 0.3:
+		aim = mv.normalized()
 
 
 func _bot_think() -> void:
@@ -1145,6 +1179,9 @@ func tidy() -> void:
 
 func add_shake(a: float) -> void:
 	shake = maxf(shake, a)
+	# On a phone, whatever shakes the screen is also felt in the hand.
+	if pad != null:
+		hud.buzz(int(clampf(a * 6.0, 12.0, 70.0)))
 
 
 func scorch(pos: Vector2, r: float) -> void:
@@ -1575,6 +1612,8 @@ func interact() -> void:
 			var rel: Dictionary = Story.RELICS[depth - 1]
 			grant_power(rel["power"])
 			var how: String = "" if rel["key"] == "" else "\n\n[ Press %s to use it. ]" % rel["key"]
+			if pad != null and how != "":
+				how = "\n\n[ Its rune now sits by your right thumb. ]"
 			hud.dialog([["RELIC  -  " + (rel["name"] as String).to_upper(), rel["text"] + how]])
 		"stairs":
 			if sealed:
@@ -1613,7 +1652,7 @@ func _update_camera(dt: float) -> void:
 	var vp := get_viewport()
 	var talking: bool = hud.modal == "dialog" or hud.modal == "choice"
 	var look := Vector2.ZERO
-	if not bot and not dead and not hud.blocking():
+	if pad == null and not bot and not dead and not hud.blocking():
 		look = (vp.get_mouse_position() - vp.get_visible_rect().size * 0.5) / cam.zoom.x * 0.18
 	var target := ppos + Vector2(0, -6) + look
 	if not hud.blocking():
