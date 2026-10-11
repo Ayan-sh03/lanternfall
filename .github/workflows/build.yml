@@ -1,0 +1,74 @@
+# Builds the Windows .exe and the Android .apk on every push to main, on pull
+# requests, and on demand. A tag such as v1.0 also attaches both to a release.
+#
+# To sign the APK with your own key (so it can update an installed copy), add
+# three repository secrets:
+#   ANDROID_KEYSTORE_BASE64    the keystore file, base64-encoded
+#   ANDROID_KEYSTORE_USER      the key alias
+#   ANDROID_KEYSTORE_PASSWORD  the keystore password
+# Without them the APK is signed with a throwaway key made during the run.
+name: Build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Windows .exe and Android .apk
+    runs-on: windows-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    env:
+      GODOT_VERSION: 4.3-stable
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Restore Godot and its export templates
+        id: godot
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}\godot
+          key: godot-${{ env.GODOT_VERSION }}-windows-android-1
+
+      - name: Download Godot and its export templates
+        if: steps.godot.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: ./ci/fetch-godot.ps1 -Version $env:GODOT_VERSION -Dest "$env:RUNNER_TEMP\godot"
+
+      - name: Check and build
+        shell: pwsh
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_USER: ${{ secrets.ANDROID_KEYSTORE_USER }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: ./ci/build.ps1 -GodotDir "$env:RUNNER_TEMP\godot"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Lanternfall
+          path: |
+            build/Lanternfall.exe
+            build/Lanternfall.apk
+          if-no-files-found: error
+
+      - name: Attach the builds to the release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            build/Lanternfall.exe
+            build/Lanternfall.apk
