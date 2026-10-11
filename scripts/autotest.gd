@@ -11,6 +11,7 @@ func _ready() -> void:
 	for a in OS.get_cmdline_user_args():
 		if a.begins_with("--shotdir="):
 			dir = a.substr(10)
+	print("AUDIO %d recorded sounds, %d music tracks" % [Sfx.file_sounds.size(), Sfx.tracks.size()])
 	run()
 
 
@@ -223,6 +224,7 @@ var probe_sum := 0.0
 var probe_worst := 0.0
 var probe_script := 0.0
 var probe_script_worst := 0.0
+var probe_draws := 0.0
 
 
 func _process(dt: float) -> void:
@@ -234,6 +236,7 @@ func _process(dt: float) -> void:
 	var sp: float = Performance.get_monitor(Performance.TIME_PROCESS)
 	probe_script += sp
 	probe_script_worst = maxf(probe_script_worst, sp)
+	probe_draws += Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME)
 
 
 func probe(label: String, secs: float) -> void:
@@ -242,13 +245,14 @@ func probe(label: String, secs: float) -> void:
 	probe_worst = 0.0
 	probe_script = 0.0
 	probe_script_worst = 0.0
+	probe_draws = 0.0
 	probe_on = true
 	await w(secs)
 	probe_on = false
 	var n := maxi(probe_frames, 1)
-	print("PERF %-22s fps %6.1f   frame avg %5.2f ms  worst %5.1f ms   script avg %5.2f ms  worst %5.1f ms" % [
+	print("PERF %-22s fps %6.1f   frame avg %5.2f ms  worst %5.1f ms   script avg %5.2f ms  worst %5.1f ms   draw calls %4.0f" % [
 		label, n / maxf(probe_sum, 0.001), probe_sum / n * 1000.0, probe_worst * 1000.0,
-		probe_script / n * 1000.0, probe_script_worst * 1000.0])
+		probe_script / n * 1000.0, probe_script_worst * 1000.0, probe_draws / n])
 
 
 ## Timing run: startup, floor generation, and frame time idle and in a big fight.
@@ -291,7 +295,217 @@ func perf() -> void:
 	get_tree().quit()
 
 
+func tap(idx: int, pos: Vector2, down: bool) -> void:
+	var ev := InputEventScreenTouch.new()
+	ev.index = idx
+	ev.position = pos
+	ev.pressed = down
+	get_viewport().push_input(ev, true)
+
+
+func drag(idx: int, pos: Vector2) -> void:
+	var ev := InputEventScreenDrag.new()
+	ev.index = idx
+	ev.position = pos
+	get_viewport().push_input(ev, true)
+
+
+func pad_pos(g, id: String) -> Vector2:
+	g.pad._layout()
+	for b in g.pad.btns:
+		if b["id"] == id:
+			return g.pad.get_global_transform() * (b["c"] as Vector2)
+	return Vector2(-1, -1)
+
+
+func buttons_in(n: Node, out: Array) -> void:
+	for c in n.get_children():
+		if c is Button:
+			out.append(c)
+		buttons_in(c, out)
+
+
+func tap_button(text: String, finger: int = 3) -> bool:
+	var all: Array = []
+	buttons_in(main.hud.modal_root, all)
+	for b in all:
+		if (b.text as String).begins_with(text):
+			var c: Vector2 = (b as Button).get_global_rect().get_center()
+			tap(finger, c, true)
+			await w(0.08)
+			tap(finger, c, false)
+			await w(0.15)
+			return true
+	return false
+
+
+func check(label: String, ok: bool) -> void:
+	print("TOUCH %s  %s" % ["ok  " if ok else "FAIL", label])
+
+
+## Drives the on-screen pad with injected touches (-- --autotest --touch).
+func touch_test() -> void:
+	main.slot = 9
+	await w(0.8)
+	await shot("t_title")
+	await tap_button("New Descent")
+	check("a tap presses a menu button", main.hud.modal == "choice")
+	await shot("t_slots")
+	main.hud._close_modal()
+	main.new_game(1)
+	var g = main.game
+	g.god = true
+	g.xp_next = 9999999
+	await w(1.2)
+	await shot("t_idle")
+	var vs: Vector2 = main.hud.root.size
+	var so := Vector2(170, vs.y - 170)
+	var x0: float = g.ppos.x
+	tap(0, so, true)
+	drag(0, so + Vector2(70, 0))
+	await w(0.5)
+	check("the stick moves Wren", g.ppos.x > x0 + 10.0)
+	var e = g.spawn_enemy("husk", g.ppos + Vector2(-24, 0), 0)
+	e.awake = true
+	e.hp = 99999.0
+	var hp0: float = e.hp
+	var sp := pad_pos(g, "strike")
+	tap(1, sp, true)
+	await w(0.45)
+	await shot("t_fight")
+	check("STRIKE turns to the nearest foe", g.aim.dot((e.center() - g.pcenter()).normalized()) > 0.9)
+	check("STRIKE lands", e.hp < hp0)
+	drag(1, sp + Vector2(0, -60))
+	await w(0.12)
+	check("dragging off the stone aims by hand", g.aim.y < -0.9)
+	tap(1, sp, false)
+	tap(0, so, false)
+	await w(0.2)
+	check("letting go stops everything", g.pad.move == Vector2.ZERO and not g.pad.atk and not g.pad.aiming)
+	e.dead = true
+	e.visible = false
+	for id in ["nova", "spark", "ward"]:
+		g.grant_power(id)
+	g.oil = g.max_oil
+	await w(0.2)
+	tap(2, pad_pos(g, "nova"), true)
+	tap(2, pad_pos(g, "nova"), false)
+	await w(0.1)
+	check("a power stone casts", g.pcd["nova"] > 0.0)
+	var stock: int = g.dash_stock
+	tap(2, pad_pos(g, "dash"), true)
+	tap(2, pad_pos(g, "dash"), false)
+	await w(0.05)
+	check("DASH dashes", g.dash_t > 0.0 or g.dash_stock < stock)
+	await w(0.6)
+	check("no USE stone away from props", pad_pos(g, "use").x < 0.0)
+	await goto_prop(g, "chest")
+	await w(0.3)
+	var up := pad_pos(g, "use")
+	check("USE stone appears by a chest", up.x > 0.0)
+	await shot("t_full")
+	var chest = g.near_prop
+	tap(2, up, true)
+	tap(2, up, false)
+	await w(0.3)
+	check("USE opens the chest", chest != null and chest["done"])
+	tap(2, pad_pos(g, "pause"), true)
+	tap(2, pad_pos(g, "pause"), false)
+	await w(0.3)
+	check("the pause stone pauses", main.hud.modal == "pause")
+	await shot("t_pause")
+	await tap_button("Picture")
+	check("the picture switch flips", main.profile["fast"])
+	await tap_button("Frame rate")
+	await tap_button("Resume")
+	check("Resume resumes", main.hud.modal == "")
+	await w(0.6)
+	await shot("t_fast")
+	main.profile["fast"] = false
+	main.apply_options()
+	# A thumb resting on the stick must not stop another finger using a menu.
+	tap(0, so, true)
+	drag(0, so + Vector2(0, -70))
+	await w(0.2)
+	g._offer_boons("A test of kindling", "Pick one.")
+	await w(0.1)
+	var all: Array = []
+	buttons_in(main.hud.modal_root, all)
+	var c: Vector2 = (all[0] as Button).get_global_rect().get_center()
+	tap(3, c, true)
+	tap(3, c, false)
+	await w(0.15)
+	check("a plaque cannot be picked as it drops in", main.hud.modal == "choice")
+	await w(0.6)
+	await shot("t_choice")
+	tap(3, c, true)
+	await w(0.08)
+	tap(3, c, false)
+	await w(0.2)
+	check("a menu answers a second finger", main.hud.modal == "")
+	tap(0, so, false)
+	main.delete_save(9)
+	get_tree().quit()
+
+
+## A dark square with the lamp's glow in it, drawn in big pixels.
+func _icon_back(px: int, block: int) -> Image:
+	var img := Image.create(px, px, false, Image.FORMAT_RGBA8)
+	var n := px / block
+	for by in n:
+		for bx in n:
+			var d := Vector2(bx + 0.5 - n * 0.5, by + 0.5 - n * 0.52).length() / (n * 0.66)
+			var k := clampf(1.0 - d, 0.0, 1.0)
+			k = floorf(k * 6.0 + 0.5) / 6.0
+			var col := Color(0.03, 0.025, 0.06).lerp(Color(1.0, 0.56, 0.18), k * 0.9)
+			img.fill_rect(Rect2i(bx * block, by * block, block, block), col)
+	return img
+
+
+func _icon_figure(px: int, scale: int) -> Image:
+	var art = preload("res://scripts/art.gd")
+	var src: Image = art.tex["player0"].get_image()
+	src.convert(Image.FORMAT_RGBA8)
+	if art.tex.has("player0_e"):
+		var glow: Image = art.tex["player0_e"].get_image()
+		glow.convert(Image.FORMAT_RGBA8)
+		src.blend_rect(glow, Rect2i(Vector2i.ZERO, glow.get_size()), Vector2i.ZERO)
+	var used := src.get_used_rect()
+	var fig := src.get_region(used)
+	fig.resize(used.size.x * scale, used.size.y * scale, Image.INTERPOLATE_NEAREST)
+	var img := Image.create(px, px, false, Image.FORMAT_RGBA8)
+	img.blit_rect(fig, Rect2i(Vector2i.ZERO, fig.get_size()), (Vector2i(px, px) - fig.get_size()) / 2)
+	return img
+
+
+## Writes the launcher icons for the Android build (-- --autotest --icons).
+func icons() -> void:
+	await w(0.3)
+	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path("res://android"))
+	var back := _icon_back(432, 12)
+	back.save_png("res://android/icon_bg.png")
+	var fig := _icon_figure(432, 10)
+	fig.save_png("res://android/icon_fg.png")
+	var flat := _icon_back(192, 8)
+	var small := _icon_figure(192, 7)
+	flat.blend_rect(small, Rect2i(0, 0, 192, 192), Vector2i.ZERO)
+	flat.save_png("res://android/icon.png")
+	# The Windows build's icon starts from this; ci/make-ico.py packs it into an .ico.
+	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path("res://windows"))
+	var win := _icon_back(256, 8)
+	win.blend_rect(_icon_figure(256, 9), Rect2i(0, 0, 256, 256), Vector2i.ZERO)
+	win.save_png("res://windows/icon.png")
+	print("ICONS written, figure %s" % [fig.get_used_rect().size])
+	get_tree().quit()
+
+
 func run() -> void:
+	if OS.get_cmdline_user_args().has("--icons"):
+		icons()
+		return
+	if OS.get_cmdline_user_args().has("--touch"):
+		touch_test()
+		return
 	if OS.get_cmdline_user_args().has("--perf"):
 		perf()
 		return

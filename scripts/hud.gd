@@ -3,6 +3,7 @@ extends CanvasLayer
 
 const Art = preload("res://scripts/art.gd")
 const Story = preload("res://scripts/story.gd")
+const TouchS = preload("res://scripts/touch.gd")
 
 const C_PARCH := Color(0.93, 0.87, 0.72)
 const C_EMBER := Color(1.0, 0.72, 0.35)
@@ -27,6 +28,12 @@ var font_b: Font
 var font_i: Font
 var font_t: Font
 var showcase := false
+## Touch play: an on-screen pad replaces the keys, and taps stand in for clicks.
+var touch := false
+var pad = null
+var ui_finger := -1
+var buzz_t := -1.0
+var fps_lbl: Label
 var cap_box: VBoxContainer
 var cap_a: Label
 var cap_b: Label
@@ -132,6 +139,14 @@ func _ready() -> void:
 	float_c.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	float_c.draw.connect(_draw_floats)
 	hud_group.add_child(float_c)
+	if touch:
+		pad = TouchS.new()
+		pad.hud = self
+		hud_group.add_child(pad)
+	fps_lbl = _lbl("", 20, C_DIM, font, 4)
+	_place(fps_lbl, 0.0, 0.0, Vector2(24, 100), Vector2(160, 24))
+	fps_lbl.visible = false
+	hud_group.add_child(fps_lbl)
 
 	depth_lbl = _lbl("", 18, C_DIM, font, 4)
 	depth_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -141,6 +156,11 @@ func _ready() -> void:
 	hint_lbl = _lbl("WASD  move        Mouse  aim\nLeft click  strike  (third strike is heavy)\nRight click  ember bolt  (uses oil)\nSpace  dash        E  interact        Esc  pause\nQ / R / F  relic powers, once you find them", 20, C_PARCH, font, 5)
 	_place(hint_lbl, 0.0, 1.0, Vector2(24, -18), Vector2(420, 130))
 	hint_lbl.vertical_alignment = VERTICAL_ALIGNMENT_BOTTOM
+	if touch:
+		hint_lbl.text = "Left thumb  move\nHold STRIKE  fight  (third strike is heavy)\nHold BOLT  ember bolt  (uses oil)\nDrag off either stone to aim by hand"
+		hint_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		hint_lbl.vertical_alignment = VERTICAL_ALIGNMENT_TOP
+		_place(hint_lbl, 0.5, 0.0, Vector2(0, 46), Vector2(560, 110))
 	hud_group.add_child(hint_lbl)
 
 	prompt_lbl = _lbl("", 20, C_PARCH, font_b, 6)
@@ -155,6 +175,9 @@ func _ready() -> void:
 	sub_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_place(sub_lbl, 0.5, 1.0, Vector2(0, -128), Vector2(980, 110))
 	sub_lbl.modulate.a = 0.0
+	if touch:
+		# No power bar along the bottom on a phone, and thumbs on either side.
+		_place(sub_lbl, 0.5, 1.0, Vector2(-20, -26), Vector2(620, 150))
 	hud_group.add_child(sub_lbl)
 
 	var cc := CenterContainer.new()
@@ -545,6 +568,8 @@ func show_title() -> void:
 	vb.add_child(cc)
 	vb.add_child(_spacer(8))
 	var k := _lbl("WASD move    Mouse aim    LMB strike    RMB bolt    Space dash    E interact    Q R F powers    F11 fullscreen    M mute", 20, C_DIM)
+	if touch:
+		k.text = "Left thumb moves    Hold STRIKE to fight    Drag off a stone to aim by hand"
 	k.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	vb.add_child(k)
 
@@ -667,7 +692,7 @@ func show_cards(cards: Array, cb: Callable) -> void:
 	type_lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	type_lbl.add_theme_constant_override("line_spacing", 8)
 	vb.add_child(type_lbl)
-	blink_lbl = _lbl("click to continue", 17, C_DIM, font_i)
+	blink_lbl = _lbl("tap to continue" if touch else "click to continue", 17, C_DIM, font_i)
 	blink_lbl.visible = not showcase
 	blink_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	vb.add_child(blink_lbl)
@@ -714,7 +739,7 @@ func dialog(entries: Array, cb: Callable = Callable()) -> void:
 	type_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 	type_lbl.add_theme_constant_override("line_spacing", 5)
 	vb.add_child(type_lbl)
-	blink_lbl = _lbl("Space / click", 15, C_DIM, font_i)
+	blink_lbl = _lbl("tap" if touch else "Space / click", 15, C_DIM, font_i)
 	blink_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	vb.add_child(blink_lbl)
 	_next_line()
@@ -868,6 +893,7 @@ func _plaque(o: Dictionary, i: int) -> Control:
 	_full(num)
 	num.offset_bottom = -6
 	cap.add_child(num)
+	cap.visible = not touch
 	cv.add_child(cap)
 
 	b.mouse_entered.connect(_plaque_hover.bind(card, true))
@@ -894,6 +920,9 @@ func _plaque_hover(card: Control, on: bool) -> void:
 
 func _choose(i: int) -> void:
 	if modal != "choice" or i < 0 or i >= choice_n:
+		return
+	# A thumb already hammering STRIKE must not pick a plaque as it drops in.
+	if touch and t - modal_t0 < 0.45:
 		return
 	Sfx.play("ui_ok")
 	var cb := choice_cb
@@ -925,10 +954,100 @@ func show_pause() -> void:
 	vb.add_child(_wrapped(bt, 18, C_PARCH, 900.0))
 	vb.add_child(_spacer(12))
 	vb.add_child(_wrapped("Your descent is saved at every lamp you light and every depth you reach.", 20, C_DIM, 900.0))
-	for b in [_btn("Resume", _close_modal), _btn("Quit to title", main.to_title), _btn("Quit to desktop", main.quit_game)]:
+	vb.add_child(_options_row())
+	for b in [_btn("Resume", _close_modal), _btn("Quit to title", main.to_title),
+			_btn("Quit game" if touch else "Quit to desktop", main.quit_game)]:
 		var cc := CenterContainer.new()
 		cc.add_child(b)
 		vb.add_child(cc)
+
+
+## Small switches on the pause screen. Each press flips one and rewrites its label.
+func _options_row() -> Control:
+	var row := HBoxContainer.new()
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	row.add_theme_constant_override("separation", 10)
+	var keys := ["sound", "fps", "fast"]
+	if touch:
+		keys.insert(1, "haptics")
+	for k in keys:
+		var b := _btn(_opt_text(k), func(): pass, 215.0)
+		b.add_theme_font_size_override("font_size", 20)
+		b.pressed.connect(_opt_flip.bind(k, b))
+		row.add_child(b)
+	return row
+
+
+func _opt_text(k: String) -> String:
+	var on: bool = main.profile[k]
+	match k:
+		"sound":
+			return "Sound:  " + ("on" if on else "off")
+		"haptics":
+			return "Rumble:  " + ("on" if on else "off")
+		"fps":
+			return "Frame rate:  " + ("shown" if on else "hidden")
+	return "Picture:  " + ("fast" if on else "sharp")
+
+
+func _opt_flip(k: String, b: Button) -> void:
+	main.profile[k] = not main.profile[k]
+	main.apply_options()
+	main._save_profile()
+	b.text = _opt_text(k)
+	Sfx.play("ui_ok")
+
+
+## A short rumble on phones; calls that come too close together are dropped.
+func buzz(ms: int) -> void:
+	if not touch or not main.profile["haptics"] or t - buzz_t < 0.07:
+		return
+	buzz_t = t
+	Input.vibrate_handheld(ms)
+
+
+## Keeps the HUD clear of camera cut-outs and rounded corners.
+func _fit_safe_area() -> void:
+	var win := Vector2(DisplayServer.window_get_size())
+	var safe := DisplayServer.get_display_safe_area()
+	if win.x <= 0.0 or safe.size.x <= 0:
+		return
+	var k := root.size.x / win.x
+	hud_group.offset_left = clampf(safe.position.x * k, 0.0, 120.0)
+	hud_group.offset_right = -clampf((win.x - safe.end.x) * k, 0.0, 120.0)
+
+
+## Menus are built from ordinary buttons, which listen for a mouse. On a touch
+## screen every finger is turned into a click here, so a menu still answers
+## while another thumb is resting on the stick.
+func _touch_ui(ev: InputEventScreenTouch) -> void:
+	if ev.pressed:
+		if ui_finger != -1 or modal == "" or modal == "fade":
+			return
+		ui_finger = ev.index
+	elif ev.index != ui_finger:
+		return
+	else:
+		ui_finger = -1
+	var vp := get_viewport()
+	var mm := InputEventMouseMotion.new()
+	mm.position = ev.position
+	mm.global_position = ev.position
+	var mb := InputEventMouseButton.new()
+	mb.button_index = MOUSE_BUTTON_LEFT
+	mb.pressed = ev.pressed
+	mb.button_mask = MOUSE_BUTTON_MASK_LEFT if ev.pressed else 0
+	mb.position = ev.position
+	mb.global_position = ev.position
+	if ev.pressed:
+		vp.push_input.call_deferred(mm, true)
+	vp.push_input.call_deferred(mb, true)
+	if not ev.pressed:
+		# Lift the pointer away again so nothing stays lit as if hovered.
+		var off := InputEventMouseMotion.new()
+		off.position = Vector2(-200, -200)
+		off.global_position = off.position
+		vp.push_input.call_deferred(off, true)
 
 
 func show_death() -> void:
@@ -972,6 +1091,9 @@ func show_end(kind: int) -> void:
 # --- Input ----------------------------------------------------------------------
 
 func _input(ev: InputEvent) -> void:
+	if touch and ev is InputEventScreenTouch:
+		_touch_ui(ev)
+		return
 	if modal == "" or modal == "fade":
 		return
 	var press := false
@@ -1060,8 +1182,15 @@ func _process(dt: float) -> void:
 				"choice":
 					_choose(0)
 
+	if pad != null:
+		pad.game = game
 	if not in_game:
 		return
+	if OS.has_feature("mobile") and Engine.get_frames_drawn() % 30 == 0:
+		_fit_safe_area()
+	fps_lbl.visible = main.profile["fps"] and not showcase
+	if fps_lbl.visible and Engine.get_frames_drawn() % 15 == 0:
+		fps_lbl.text = "%d fps" % roundi(Engine.get_frames_per_second())
 	hud_c.queue_redraw()
 	float_c.queue_redraw()
 	var i := floats.size() - 1
@@ -1103,9 +1232,9 @@ func _process(dt: float) -> void:
 
 	var p = game.near_prop
 	if p != null and modal == "" and not game.dead:
-		prompt_lbl.text = "[E]   " + game.prompt_for(p)
+		prompt_lbl.text = ("" if touch else "[E]   ") + game.prompt_for(p)
 		var sp: Vector2 = game.get_viewport().get_canvas_transform() * (p["pos"] as Vector2)
-		prompt_lbl.position = sp + Vector2(-180, -78)
+		prompt_lbl.position = sp + Vector2(-180, -78) - hud_group.position
 		prompt_lbl.visible = true
 	else:
 		prompt_lbl.visible = false
@@ -1115,7 +1244,7 @@ func _draw_hud() -> void:
 	if game == null:
 		return
 	var c := hud_c
-	var vs := root.size
+	var vs := hud_c.size
 	# Hearts.
 	var hearts := int(ceil(game.max_hp / 2.0))
 	for i in hearts:
@@ -1143,7 +1272,8 @@ func _draw_hud() -> void:
 		c.draw_rect(Rect2(mx + 3, 18, 8, 9), Color(1.0, 0.55, 0.15) if lit else Color(0.18, 0.15, 0.14))
 		if lit:
 			c.draw_rect(Rect2(mx + 5, 20, 4, 4), Color(1.0, 0.95, 0.6))
-	_draw_bar(c, vs)
+	if not touch:
+		_draw_bar(c, vs)
 	# Minimap marker.
 	var pt: Vector2i = game.ptile
 	var mp := mini.position + Vector2(pt) * 3.0
@@ -1247,7 +1377,7 @@ func _draw_icon(c: Control, id: String, o: Vector2, on: bool) -> void:
 func _draw_floats() -> void:
 	if game == null:
 		return
-	var xf: Transform2D = game.get_viewport().get_canvas_transform()
+	var xf: Transform2D = game.get_viewport().get_canvas_transform().translated(-hud_group.position)
 	for f in floats:
 		var k: float = f["t"] / 0.8
 		var sp: Vector2 = xf * (f["w"] as Vector2) + Vector2(0, -36.0 * k)
