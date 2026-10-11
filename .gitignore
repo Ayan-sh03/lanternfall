@@ -1,0 +1,10 @@
+# Godot editor cache and import data (regenerated automatically)
+.godot/
+*.import
+
+# Local display override used only while recording
+override.cfg
+
+# The rendered showcase video is a build output, not source
+*.mp4
+*.avi

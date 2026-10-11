@@ -1,0 +1,6 @@
+# Godot files use LF; Windows batch files need CRLF.
+* text=auto eol=lf
+*.bat text eol=crlf
+*.ogg binary
+*.ttf binary
+*.png binary

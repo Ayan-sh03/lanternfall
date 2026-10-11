@@ -1,0 +1,52 @@
+LANTERNFALL - third-party assets
+================================
+
+Everything listed here is free to use. The audio is Creative Commons Zero
+(CC0, public domain dedication): no attribution is required, but the people who
+made it deserve the mention. The fonts are under the SIL Open Font License 1.1;
+their licence texts sit next to them in fonts/.
+
+All pixel art (characters, monsters, tiles, props) is drawn in code by the game
+itself (scripts/art.gd) and is original to this project.
+
+
+FONTS  (SIL Open Font License 1.1)
+----------------------------------
+New Rocker   Pablo Impallari, Brenda Gallo    fonts/NewRocker-Regular.ttf   titles and headings
+Jersey 10    The Soft Type Project Authors    fonts/Jersey10-Regular.ttf    all other text
+  (Jersey 20 is bundled alongside it but not currently used.)
+  Source: https://github.com/google/fonts (ofl/newrocker, ofl/jersey10, ofl/jersey20)
+
+
+MUSIC  (CC0, from OpenGameArt.org)       audio/music/
+---------------------------------------------------
+(Names in the third column are the OpenGameArt accounts that published each track.)
+title.ogg    "Dark Intro"                          nikke          opengameart.org/content/dark-intro
+depth1.ogg   "Cursed Tower Veranda"                bobjt          opengameart.org/content/cursed-tower-veranda
+depth2.ogg   "Dungeon Theme"                       katana         opengameart.org/content/dungeon-theme-0
+depth3.ogg   "Dark Cavern Ambient" (001)           Paul Wortmann  opengameart.org/content/dark-cavern-ambient
+depth4.ogg   "Dark Cavern Ambient" (002)           Paul Wortmann  opengameart.org/content/dark-cavern-ambient
+forge.ogg    "Evil Temple Ambiance Loop"           Brandon Morris opengameart.org/content/evil-temple-ambiance-loop
+boss.ogg     "Epic Boss Battle [Seamlessly Looping]"  Juhani Junkala (SubspaceAudio)  opengameart.org/content/boss-battle-music
+keep.ogg     "I Want To Go Home"                   eldritch-grim  opengameart.org/content/i-want-to-go-home
+dawn.ogg     "Ending Scene"                        nene           opengameart.org/content/ending-scene
+
+
+SOUND EFFECTS  (CC0)                     audio/sfx/
+---------------------------------------------------
+Kenney (kenney.nl): "RPG Audio", "Impact Sounds", "Interface Sounds"
+    slash, hit, punch, pop, page, step, clank, ui, ui_ok, type, some of coins / bell / thud
+rubberduck (OpenGameArt.org): "80 CC0 RPG SFX", "100 CC0 SFX", "100 CC0 SFX #2"
+    slash3, kill, growl, roar, slime, shoot, bolt, fire, cinder, relic, lock, stairs,
+    chest, urn, boom, gong, dash, thunder, some of coins / bell / thud
+
+The files were trimmed, converted to mono OGG and level-matched for the game.
+A handful of cues (level-up, heart, lamp chime, telegraph tones, and others) are
+still synthesised at startup by scripts/sfx.gd, which also holds a full
+synthesised fallback soundtrack used only if a music file is missing.
+
+
+TRAILER KEY ART                          trailer/
+---------------------------------------------------
+key1.png, key2.png: generated for this project with FLUX 1.1 Pro (Black Forest Labs)
+through Replicate. Used only as the opening and closing cards of the showcase video.

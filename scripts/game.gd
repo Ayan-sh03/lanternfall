@@ -1,0 +1,1998 @@
+extends Node2D
+## The dungeon itself: the map, the fog of war, Wren, and everything that moves.
+
+const Art = preload("res://scripts/art.gd")
+const Dungeon = preload("res://scripts/dungeon.gd")
+const EnemyS = preload("res://scripts/enemy.gd")
+const FxS = preload("res://scripts/fx.gd")
+const Story = preload("res://scripts/story.gd")
+
+const TS := 16
+const AMBIENT := Color(0.14, 0.14, 0.23)
+const FOGC := Color(0.012, 0.012, 0.03)
+const MINI_FLOOR := Color(0.66, 0.6, 0.5, 0.95)
+const MINI_WALL := Color(0.27, 0.24, 0.27, 0.95)
+const MINI_STAIRS := Color(0.4, 0.95, 1.0, 1.0)
+const DIRS := [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]
+const PROMPTS := {"chest": "Open", "lamp": "Light the wayside lamp", "page": "Read", "plaque": "Read the plaque",
+	"stairs": "Descend", "cage": "The latch", "relic": "Take the relic"}
+
+var main
+var hud
+var rng := RandomNumberGenerator.new()
+
+# --- map ---
+var depth := 1
+var dungeon := {}
+var W := 0
+var H := 0
+var tiles := PackedByteArray()
+var room_id := PackedInt32Array()
+var vis := PackedByteArray()
+var seen := PackedByteArray()
+var fog_a := PackedFloat32Array()
+var flow := PackedInt32Array()
+var flow_q := PackedInt32Array()
+var vis_list := PackedInt32Array()
+var fog_img: Image
+var fog_tex: ImageTexture
+var mini_img: Image
+var mini_tex: ImageTexture
+var stairs_tile := Vector2i(-1, -1)
+var exit_room := -1
+var sealed := false
+
+# --- scene ---
+var map_root: Node2D
+var decal_node: Node2D
+var ents: Node2D
+var over: Node2D
+var fx
+var fog_sprite: Sprite2D
+var ambient_node: CanvasModulate
+var cam: Camera2D
+var enemies: Array = []
+var shots: Array = []
+var props: Array = []
+var pickups: Array = []
+var lights: Array = []
+var decals: Array = []
+var near_prop = null
+
+# --- Wren ---
+var pnode: Node2D
+var pspr: Sprite2D
+var pemi: Sprite2D
+var staff: Sprite2D
+var staff_e: Sprite2D
+var swing_t := -1.0
+var swing_dur := 0.14
+var swing_from := 0.0
+var swing_to := 0.0
+var swing_dir := 1.0
+var pose := ""
+var pose_t := 0.0
+var atk_pose := 0.0
+var pmat: ShaderMaterial
+var plight: PointLight2D
+var pglow: Sprite2D
+var ppos := Vector2.ZERO
+var ptile := Vector2i(-1, -1)
+var pvel := Vector2.ZERO
+var pknock := Vector2.ZERO
+var aim := Vector2.RIGHT
+var last_mv := Vector2.ZERO
+var hp := 8
+var max_hp := 8
+var oil := 100.0
+var max_oil := 100.0
+var xp := 0
+var level := 1
+var xp_next := 22
+var stats := {"dmg": 10.0, "reach": 1.0, "speed": 80.0, "bolt_dmg": 13.0, "bolt_n": 1, "dash_cd": 0.9,
+	"light": 1.0, "oil_regen": 2.0, "heart_drop": 0.05, "sear": 0.0, "siphon": 0.0, "thorns": 0.0, "pierce": 0,
+	"power": 1.0, "cdr": 1.0, "orbit": 0, "wave": 0.0, "burn": 0.0, "shatter": 0.0, "dash_n": 1, "trail": 0.0,
+	"magnet": 1.0, "xp_mult": 1.0, "crit": 0.0}
+var boons: Array = []
+var atk_cd := 0.0
+var bolt_cd := 0.0
+## Input buffers: a press made slightly too early is remembered for a moment.
+var atk_buf := 0.0
+var bolt_buf := 0.0
+var dash_buf := 0.0
+var dash_cd := 0.0
+var dash_t := 0.0
+var dash_dir := Vector2.RIGHT
+var dash_hit: Array = []
+var invuln := 0.0
+var combo := 0
+var combo_t := 0.0
+var input_lock := 0.0
+var step_t := 0.0
+var flash := 0.0
+var light_k := 1.0
+var light_target := 1.0
+
+# --- powers ---
+var powers := {"nova": false, "spark": false, "ward": false}
+var pcd := {"nova": 0.0, "spark": 0.0, "ward": 0.0}
+var spare_match := false
+var match_used := false
+var dash_stock := 1
+var wards: Array = []
+var fires: Array = []
+var fire_acc := 0.0
+var motes: Array = []
+var mote_a := 0.0
+var nova_flash := 0.0
+var growl_cd := 0.0
+
+# --- run state ---
+var dead := false
+var death_t := 0.0
+var death_shown := false
+var hitstop := 0.0
+var shake := 0.0
+var anim_t := 0.0
+var run_time := 0.0
+var kills := 0
+var pages := 0
+var levelup_t := -1.0
+var floor_seed := 0
+var dead_spawns: Array = []
+var said := {}
+var boss = null
+var boss_started := false
+var boss_dead := false
+var boss_end_t := -1.0
+
+# --- test driver ---
+# --- camera ---
+var cam_zoom := 3.0
+var zoom_kick := 0.0
+var intro_t := 0.0
+var cine_t := 0.0
+var cine_zoom := 3.0
+var cine_pos := Vector2.ZERO
+var cine_has_pos := false
+var cam_script := false
+## Lets the trailer dress the practice hall in any depth's colours.
+var gallery_theme := ""
+var slow_t := 0.0
+
+var bot := false
+var bot_manual := false
+var bot_allow := {"atk": true, "move": true, "bolt": true, "dash": true, "nova": true, "spark": true, "ward": true}
+var god := false
+var bot_mv := Vector2.ZERO
+var bot_atk := false
+var bot_bolt := false
+
+
+## restore: a save to resume from. prepared: starting fresh at a chosen depth,
+## so Wren arrives with the kit she would plausibly have by then.
+func start(d: int, restore: Dictionary = {}, prepared: bool = false) -> void:
+	rng.randomize()
+	_build_nodes()
+	if not restore.is_empty():
+		_apply_save(restore)
+	elif prepared:
+		_prepare(d)
+	load_floor(d, restore)
+
+
+func _build_nodes() -> void:
+	ambient_node = CanvasModulate.new()
+	ambient_node.color = AMBIENT
+	add_child(ambient_node)
+	map_root = Node2D.new()
+	map_root.z_index = -10
+	add_child(map_root)
+	decal_node = Node2D.new()
+	decal_node.z_index = -9
+	decal_node.material = Art.mat_unlit
+	decal_node.draw.connect(_draw_decals)
+	add_child(decal_node)
+	ents = Node2D.new()
+	ents.y_sort_enabled = true
+	add_child(ents)
+	over = Node2D.new()
+	over.z_index = 15
+	add_child(over)
+	fx = FxS.new()
+	fx.z_index = 20
+	fx.wards = wards
+	add_child(fx)
+	fog_sprite = Sprite2D.new()
+	fog_sprite.centered = false
+	fog_sprite.scale = Vector2(TS, TS)
+	fog_sprite.z_index = 50
+	fog_sprite.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+	fog_sprite.material = Art.mat_unlit
+	add_child(fog_sprite)
+	cam = Camera2D.new()
+	cam.zoom = Vector2(3, 3)
+	add_child(cam)
+	cam.make_current()
+
+	pnode = Node2D.new()
+	ents.add_child(pnode)
+	var sh := Sprite2D.new()
+	sh.texture = Art.tex["shadow"]
+	sh.z_index = -1
+	sh.position = Vector2(0, 2)
+	pnode.add_child(sh)
+	pspr = Sprite2D.new()
+	pspr.texture = Art.tex["player_idle0"]
+	pspr.offset = Vector2(0, -pspr.texture.get_height() * 0.5 + 2.0 + Art.PAD)
+	pmat = ShaderMaterial.new()
+	pmat.shader = Art.flash_shader
+	pspr.material = pmat
+	pnode.add_child(pspr)
+	# Eyes and lantern stay lit whatever the dungeon's darkness does to the cloak.
+	pemi = Sprite2D.new()
+	pemi.texture = Art.tex["player_idle0_e"]
+	pemi.material = Art.mat_unlit
+	pemi.offset = pspr.offset
+	pspr.add_child(pemi)
+	# The lantern-staff is its own sprite, pivoting at the grip, so it can swing.
+	staff = Sprite2D.new()
+	staff.texture = Art.tex["staff"]
+	staff.centered = false
+	staff.offset = Vector2(-2.5, -11.5)
+	staff.position = Vector2(6.5, -7.5)
+	pnode.add_child(staff)
+	staff_e = Sprite2D.new()
+	staff_e.texture = Art.tex["staff_e"]
+	staff_e.material = Art.mat_unlit
+	staff_e.centered = false
+	staff.add_child(staff_e)
+	plight = PointLight2D.new()
+	plight.texture = Art.tex["light"]
+	plight.color = Color(1.0, 0.8, 0.56)
+	plight.energy = 1.3
+	plight.position = Vector2(0, -6)
+	pnode.add_child(plight)
+	pglow = Sprite2D.new()
+	pglow.texture = Art.tex["glow"]
+	pglow.material = Art.mat_add
+	pglow.modulate = Color(1.0, 0.7, 0.3, 0.5)
+	pglow.scale = Vector2(0.4, 0.4)
+	pglow.z_index = 1
+	pnode.add_child(pglow)
+
+
+# --- Floors ---------------------------------------------------------------------
+
+func load_floor(d: int, restore: Dictionary = {}) -> void:
+	depth = d
+	_clear_floor()
+	var info: Dictionary = Story.GALLERY if d <= 0 else Story.DEPTHS[d - 1]
+	if d <= 0 and gallery_theme != "":
+		info = info.duplicate()
+		info["theme"] = gallery_theme
+	# Each floor is grown from one seed, so a save only has to remember the seed
+	# to get the same floor back.
+	floor_seed = int(restore.get("seed", rng.randi()))
+	var grng := RandomNumberGenerator.new()
+	grng.seed = floor_seed
+	dungeon = Dungeon.generate(d, grng)
+	W = dungeon["w"]
+	H = dungeon["h"]
+	tiles = dungeon["tiles"]
+	room_id = dungeon["room_id"]
+	exit_room = dungeon["exit_room"]
+
+	# The floor is painted once into a big image, then cut into chunks so that no
+	# single sprite is touched by more lights than the renderer allows.
+	var img: Image = Art.compose(tiles, W, H, info["theme"])
+	var chunk := 64
+	for cy in range(0, H * TS, chunk):
+		for cx in range(0, W * TS, chunk):
+			var r := Rect2i(cx, cy, mini(chunk, W * TS - cx), mini(chunk, H * TS - cy))
+			var s := Sprite2D.new()
+			s.centered = false
+			s.position = Vector2(cx, cy)
+			s.texture = ImageTexture.create_from_image(img.get_region(r))
+			map_root.add_child(s)
+
+	var n := W * H
+	vis = PackedByteArray()
+	vis.resize(n)
+	seen = PackedByteArray()
+	seen.resize(n)
+	fog_a = PackedFloat32Array()
+	fog_a.resize(n)
+	fog_a.fill(1.0)
+	flow = PackedInt32Array()
+	flow.resize(n)
+	flow.fill(9999)
+	flow_q = PackedInt32Array()
+	flow_q.resize(n)
+	vis_list = PackedInt32Array()
+	fog_img = Image.create(W, H, false, Image.FORMAT_RGBA8)
+	fog_img.fill(Color(FOGC.r, FOGC.g, FOGC.b, 1.0))
+	fog_tex = ImageTexture.create_from_image(fog_img)
+	fog_sprite.texture = fog_tex
+	mini_img = Image.create(W, H, false, Image.FORMAT_RGBA8)
+	mini_tex = ImageTexture.create_from_image(mini_img)
+	hud.set_map(mini_tex, W, H)
+
+	var done := _ints(restore.get("done_props", []))
+	var gone := _ints(restore.get("dead_spawns", []))
+	var lamp_idx := int(restore.get("lamp_idx", -1))
+	var spawn_at := tile_center(dungeon["start"])
+	var plist: Array = dungeon["props"]
+	for i in plist.size():
+		_add_prop(plist[i], i)
+	for p in props:
+		if done.has(p["idx"]):
+			_restore_prop(p)
+		if p["idx"] == lamp_idx:
+			spawn_at = p["pos"] + Vector2(0, 12)
+	dead_spawns = gone
+	var slist: Array = dungeon["spawns"]
+	for i in slist.size():
+		if gone.has(i):
+			continue
+		var sd: Dictionary = slist[i]
+		var e = spawn_enemy(sd["kind"], tile_center(sd["tile"]), sd["room"], sd.get("elite", false))
+		e.spawn_idx = i
+
+	# Put back the map the player had already uncovered.
+	if restore.has("seen"):
+		var raw := Marshalls.base64_to_raw(restore["seen"])
+		if raw.size() == n:
+			seen = raw
+			for i in n:
+				if seen[i] == 1:
+					fog_a[i] = 0.6
+					fog_img.set_pixel(i % W, int(i / float(W)), Color(FOGC.r, FOGC.g, FOGC.b, 0.6))
+					mini_img.set_pixel(i % W, int(i / float(W)), MINI_FLOOR if tiles[i] == 1 else MINI_WALL)
+			if stairs_tile.x >= 0 and seen[stairs_tile.y * W + stairs_tile.x] == 1:
+				mini_img.set_pixel(stairs_tile.x, stairs_tile.y, MINI_STAIRS)
+			fog_tex.update(fog_img)
+			mini_tex.update(mini_img)
+
+	teleport(spawn_at)
+	pvel = Vector2.ZERO
+	pknock = Vector2.ZERO
+	light_target = 1.0
+	match_used = bool(restore.get("match_used", false))
+	dash_stock = stats["dash_n"]
+	_update_seal(true)
+	# Arrive close in, then ease back out to the working view.
+	cam_zoom = 5.4
+	intro_t = 1.8
+	cine_t = 0.0
+	if info["name"] != "":
+		hud.floor_card(info["sub"], info["name"])
+		if restore.is_empty():
+			hud.say(info["line"], 5.0)
+	Sfx.play_music(info["music"])
+	if d > 0:
+		main.reached(d)
+		if restore.is_empty():
+			save_game(-1)
+
+
+func _ints(a: Array) -> Array:
+	var out: Array = []
+	for v in a:
+		out.append(int(v))
+	return out
+
+
+# --- Saving -------------------------------------------------------------------
+
+## Writes the run to the current slot. lamp_idx is the lamp being rested at, or
+## -1 for the automatic save made on arriving at a depth.
+func save_game(lamp_idx: int) -> void:
+	if depth <= 0 or dead:
+		return
+	var done: Array = []
+	for p in props:
+		if p["done"] or p.has("read"):
+			done.append(p["idx"])
+	main.write_save({"v": 1, "depth": depth, "name": Story.DEPTHS[depth - 1]["name"], "seed": floor_seed,
+		"lamp_idx": lamp_idx, "hp": hp, "max_hp": max_hp, "oil": oil, "max_oil": max_oil, "xp": xp,
+		"level": level, "xp_next": xp_next, "stats": stats.duplicate(), "boons": boons.duplicate(),
+		"powers": powers.duplicate(), "spare": spare_match, "match_used": match_used, "kills": kills,
+		"pages": pages, "run_time": run_time, "said": said.duplicate(), "done_props": done,
+		"dead_spawns": dead_spawns.duplicate(), "seen": Marshalls.raw_to_base64(seen)})
+
+
+func _apply_save(s: Dictionary) -> void:
+	max_hp = int(s["max_hp"])
+	hp = int(s["hp"])
+	max_oil = float(s["max_oil"])
+	oil = float(s["oil"])
+	xp = int(s["xp"])
+	level = int(s["level"])
+	xp_next = int(s["xp_next"])
+	var st: Dictionary = s["stats"]
+	for k in st:
+		if stats.has(k):
+			# JSON has only one number type; keep counts as whole numbers.
+			stats[k] = int(st[k]) if typeof(stats[k]) == TYPE_INT else float(st[k])
+	boons = (s["boons"] as Array).duplicate()
+	var pw: Dictionary = s["powers"]
+	for k in pw:
+		powers[k] = bool(pw[k])
+	spare_match = bool(s["spare"])
+	kills = int(s["kills"])
+	pages = int(s["pages"])
+	run_time = float(s["run_time"])
+	said = (s["said"] as Dictionary).duplicate()
+	if s.get("revive", false):
+		# Coming back from a death: the lamp sets you fully to rights.
+		hp = max_hp
+		oil = max_oil
+	_sync_motes()
+
+
+## Starting fresh below the first depth: hand over the relics and roughly the
+## kindlings a run would have collected by then.
+func _prepare(d: int) -> void:
+	for i in mini(d - 1, Story.RELICS.size()):
+		grant_power(Story.RELICS[i]["power"])
+	var picks := 2 * (d - 1)
+	for i in picks:
+		var pool: Array = []
+		for b in Story.BOONS:
+			if not (b.get("unique", false) and boons.has(b["id"])):
+				pool.append(b["id"])
+		apply_boon(pool[rng.randi() % pool.size()])
+	level = 1 + picks
+	xp = 0
+	xp_next = 14 + level * 8
+	levelup_t = -1.0
+	hp = max_hp
+	oil = max_oil
+
+
+func _restore_prop(p: Dictionary) -> void:
+	match p["type"]:
+		"chest":
+			p["done"] = true
+			p["spr"].texture = Art.tex["chest1"]
+		"lamp":
+			_light_lamp(p)
+		"plaque":
+			p["read"] = true
+		"urn", "page", "relic":
+			p["done"] = true
+			if p.has("light"):
+				lights.erase(p["light"])
+			p["node"].queue_free()
+
+
+func _light_lamp(p: Dictionary) -> void:
+	p["done"] = true
+	p["spr"].texture = Art.tex["lamp1"]
+	_light(p["node"], Color(1.0, 0.85, 0.55), 1.2, 1.9, Vector2(0, -14))
+	_glow(p["node"], Color(1.0, 0.8, 0.4, 0.6), 0.5, Vector2(0, -14))
+
+
+func _clear_floor() -> void:
+	for c in map_root.get_children():
+		c.queue_free()
+	for e in enemies:
+		e.queue_free()
+	for p in props:
+		# Broken urns and collected pages have already freed their node.
+		if is_instance_valid(p["node"]):
+			p["node"].queue_free()
+	for s in shots:
+		s["node"].queue_free()
+	for p in pickups:
+		p["node"].queue_free()
+	for wd in wards:
+		wd["node"].queue_free()
+	wards.clear()
+	fires.clear()
+	enemies.clear()
+	props.clear()
+	shots.clear()
+	pickups.clear()
+	lights.clear()
+	decals.clear()
+	decal_node.queue_redraw()
+	fx.clear()
+	near_prop = null
+	boss = null
+	boss_started = false
+	boss_dead = false
+	boss_end_t = -1.0
+	stairs_tile = Vector2i(-1, -1)
+
+
+func tile_center(t: Vector2i) -> Vector2:
+	return Vector2(t.x * TS + TS * 0.5, t.y * TS + TS * 0.5)
+
+
+func teleport(p: Vector2) -> void:
+	ppos = p
+	pnode.position = p
+	cam.position = p
+	ptile = Vector2i(-1, -1)
+
+
+func _stand(s: Sprite2D) -> void:
+	s.offset = Vector2(0, -s.texture.get_height() * 0.5 + 3.0)
+
+
+func _glow(parent: Node, col: Color, sc: float, pos: Vector2) -> Sprite2D:
+	var gl := Sprite2D.new()
+	gl.texture = Art.tex["glow"]
+	gl.material = Art.mat_add
+	gl.modulate = col
+	gl.scale = Vector2(sc, sc)
+	gl.position = pos
+	parent.add_child(gl)
+	return gl
+
+
+func _light(parent: Node, col: Color, energy: float, sc: float, pos: Vector2) -> PointLight2D:
+	var l := PointLight2D.new()
+	l.texture = Art.tex["light"]
+	l.color = col
+	l.energy = energy
+	l.texture_scale = sc
+	l.position = pos
+	parent.add_child(l)
+	lights.append(l)
+	return l
+
+
+func _add_prop(pd: Dictionary, idx: int = -1) -> void:
+	var type: String = pd["type"]
+	var pos := tile_center(pd["tile"])
+	var node := Node2D.new()
+	node.position = pos
+	var s := Sprite2D.new()
+	node.add_child(s)
+	var p := {"type": type, "pos": pos, "node": node, "spr": s, "done": false, "t": rng.randf() * 6.0, "idx": idx}
+	match type:
+		"brazier":
+			s.texture = Art.tex["brazier"]
+			_stand(s)
+			p["light"] = _light(node, Color(1.0, 0.58, 0.28), 0.95, 1.15, Vector2(0, -8))
+			_glow(node, Color(1.0, 0.5, 0.15, 0.45), 0.3, Vector2(0, -9))
+		"urn":
+			s.texture = Art.tex["urn"]
+			_stand(s)
+		"chest":
+			s.texture = Art.tex["chest0"]
+			_stand(s)
+		"lamp":
+			s.texture = Art.tex["lamp0"]
+			_stand(s)
+		"page":
+			s.texture = Art.tex["page"]
+			s.material = Art.mat_unlit
+			_stand(s)
+			p["glow"] = _glow(node, Color(1.0, 0.9, 0.6, 0.45), 0.45, Vector2(0, -3))
+		"plaque":
+			s.texture = Art.tex["plaque"]
+			_stand(s)
+			p["glow"] = _glow(node, Color(0.5, 1.0, 0.85, 0.3), 0.45, Vector2(0, -3))
+		"relic":
+			s.texture = Art.tex["relic"]
+			_stand(s)
+			var em := Sprite2D.new()
+			em.texture = Art.tex["relic_e"]
+			em.material = Art.mat_unlit
+			em.offset = s.offset
+			node.add_child(em)
+			p["glow"] = _glow(node, Color(1.0, 0.75, 0.3, 0.6), 0.55, Vector2(0, -12))
+			p["light"] = _light(node, Color(1.0, 0.8, 0.45), 0.9, 1.0, Vector2(0, -10))
+		"stairs":
+			s.texture = Art.tex["stairs"]
+			stairs_tile = pd["tile"]
+			p["glow"] = _glow(node, Color(1.0, 0.15, 0.1, 0.7), 0.5, Vector2.ZERO)
+		"cage":
+			s.texture = Art.tex["cage"]
+			_stand(s)
+			var orb := _glow(node, Color(1.0, 0.75, 0.35, 1.0), 0.32, Vector2(0, -6))
+			orb.z_index = -1
+			p["glow"] = orb
+			p["halo"] = _glow(node, Color(1.0, 0.55, 0.2, 0.5), 1.1, Vector2(0, -6))
+			p["light"] = _light(node, Color(1.0, 0.7, 0.4), 1.2, 1.6, Vector2(0, -6))
+	if type == "stairs":
+		map_root.add_child(node)
+	else:
+		ents.add_child(node)
+	props.append(p)
+
+
+func spawn_enemy(kind: String, pos: Vector2, room: int, elite: bool = false):
+	var e = EnemyS.new()
+	ents.add_child(e)
+	e.setup(self, kind, pos, room)
+	if elite:
+		e.make_elite()
+	enemies.append(e)
+	if kind == "warden":
+		boss = e
+	return e
+
+
+# --- Grid queries ---------------------------------------------------------------
+
+func solid_at(p: Vector2) -> bool:
+	var tx := int(floor(p.x / TS))
+	var ty := int(floor(p.y / TS))
+	if tx < 0 or ty < 0 or tx >= W or ty >= H:
+		return true
+	return tiles[ty * W + tx] == 0
+
+
+func _box_blocked(x: float, y: float, r: float) -> bool:
+	return solid_at(Vector2(x - r, y - r)) or solid_at(Vector2(x + r, y - r)) \
+		or solid_at(Vector2(x - r, y + r)) or solid_at(Vector2(x + r, y + r))
+
+
+## Slides a body through the tile grid, one axis at a time.
+func move_body(pos: Vector2, d: Vector2, r: float) -> Vector2:
+	var steps := maxi(1, int(ceil(d.length() / 4.0)))
+	var sd := d / steps
+	for i in steps:
+		if not _box_blocked(pos.x + sd.x, pos.y, r):
+			pos.x += sd.x
+		if not _box_blocked(pos.x, pos.y + sd.y, r):
+			pos.y += sd.y
+	return pos
+
+
+func los(a: Vector2, b: Vector2) -> bool:
+	var d := b - a
+	var n := int(d.length() / 6.0) + 1
+	for i in range(1, n):
+		if solid_at(a + d * (float(i) / n)):
+			return false
+	return true
+
+
+func vis_at(p: Vector2) -> bool:
+	var tx := int(p.x / TS)
+	var ty := int(p.y / TS)
+	if tx < 0 or ty < 0 or tx >= W or ty >= H:
+		return false
+	return vis[ty * W + tx] == 1
+
+
+func pcenter() -> Vector2:
+	return ppos + Vector2(0, -7)
+
+
+## Which way an enemy should walk to reach Wren when it cannot see her.
+func flow_dir(pos: Vector2) -> Vector2:
+	var tx := int(pos.x / TS)
+	var ty := int(pos.y / TS)
+	if tx < 1 or ty < 1 or tx >= W - 1 or ty >= H - 1:
+		return Vector2.ZERO
+	var best: int = flow[ty * W + tx]
+	var bt := Vector2i(tx, ty)
+	for o in DIRS:
+		var nt: Vector2i = Vector2i(tx, ty) + o
+		var v: int = flow[nt.y * W + nt.x]
+		if v < best:
+			best = v
+			bt = nt
+	if best >= 9999:
+		return Vector2.ZERO
+	return (tile_center(bt) - pos).normalized()
+
+
+func _update_flow() -> void:
+	flow.fill(9999)
+	if ptile.x < 0 or ptile.y < 0 or ptile.x >= W or ptile.y >= H:
+		return
+	var head := 0
+	var tail := 0
+	var s := ptile.y * W + ptile.x
+	var total := W * H
+	flow[s] = 0
+	flow_q[tail] = s
+	tail += 1
+	while head < tail:
+		var i := flow_q[head]
+		head += 1
+		var d := flow[i] + 1
+		if d > 44:
+			continue
+		for o in [1, -1, W, -W]:
+			var j: int = i + o
+			if j < 0 or j >= total:
+				continue
+			if tiles[j] == 1 and flow[j] > d:
+				flow[j] = d
+				flow_q[tail] = j
+				tail += 1
+
+
+## Casts rays out from Wren. Whatever they touch becomes visible and remembered.
+func _update_fov() -> void:
+	for i in vis_list:
+		vis[i] = 0
+	vis_list.clear()
+	var dirty := false
+	var ox := ptile.x + 0.5
+	var oy := ptile.y + 0.5
+	var rays := 200
+	for a in rays:
+		var ang := TAU * a / rays
+		var dx := cos(ang) * 0.5
+		var dy := sin(ang) * 0.5
+		var x := ox
+		var y := oy
+		for s in 27:
+			var tx := int(x)
+			var ty := int(y)
+			if tx < 0 or ty < 0 or tx >= W or ty >= H:
+				break
+			var idx := ty * W + tx
+			if vis[idx] == 0:
+				vis[idx] = 1
+				vis_list.append(idx)
+				if seen[idx] == 0:
+					seen[idx] = 1
+					mini_img.set_pixel(tx, ty, MINI_FLOOR if tiles[idx] == 1 else MINI_WALL)
+					dirty = true
+			if tiles[idx] == 0:
+				break
+			x += dx
+			y += dy
+	if dirty:
+		if stairs_tile.x >= 0 and seen[stairs_tile.y * W + stairs_tile.x] == 1:
+			mini_img.set_pixel(stairs_tile.x, stairs_tile.y, MINI_STAIRS)
+		mini_tex.update(mini_img)
+
+
+func _update_fog(dt: float) -> void:
+	var x0 := maxi(0, ptile.x - 17)
+	var x1 := mini(W - 1, ptile.x + 17)
+	var y0 := maxi(0, ptile.y - 17)
+	var y1 := mini(H - 1, ptile.y + 17)
+	var k := minf(1.0, dt * 9.0)
+	var changed := false
+	for y in range(y0, y1 + 1):
+		var row := y * W
+		for x in range(x0, x1 + 1):
+			var i := row + x
+			var target := 1.0
+			if vis[i] == 1:
+				target = 0.0
+			elif seen[i] == 1:
+				target = 0.6
+			var a := fog_a[i]
+			if absf(a - target) > 0.01:
+				a = lerpf(a, target, k)
+				fog_a[i] = a
+				fog_img.set_pixel(x, y, Color(FOGC.r, FOGC.g, FOGC.b, a))
+				changed = true
+	if changed:
+		fog_tex.update(fog_img)
+
+
+# --- Main loop ------------------------------------------------------------------
+
+func _process(dt: float) -> void:
+	dt = minf(dt, 0.05)
+	if hud == null or W == 0:
+		return
+	if hud.blocking():
+		_update_camera(dt)
+		return
+	if hitstop > 0.0:
+		hitstop -= dt
+		return
+	if slow_t > 0.0:
+		slow_t -= dt
+		dt *= 0.3
+	anim_t += dt
+	if not dead:
+		run_time += dt
+	_update_player(dt)
+	var nt := Vector2i(int(ppos.x / TS), int(ppos.y / TS))
+	if nt != ptile:
+		ptile = nt
+		_update_fov()
+		_update_flow()
+	for e in enemies.duplicate():
+		if e.dead:
+			continue
+		# Sleeping monsters far off-screen do not need to think or animate.
+		if not e.awake and (e.position - ppos).length_squared() > 160000.0:
+			e.visible = false
+			continue
+		e.tick(dt)
+	_update_shots(dt)
+	_update_powers(dt)
+	_update_pickups(dt)
+	_update_props(dt)
+	_update_fog(dt)
+	_update_camera(dt)
+	_purge()
+	_update_events(dt)
+
+
+func _unhandled_input(ev: InputEvent) -> void:
+	if hud == null or hud.blocking() or dead or bot:
+		return
+	if ev is InputEventMouseButton and ev.pressed:
+		if ev.button_index == MOUSE_BUTTON_LEFT:
+			atk_buf = 0.22
+		elif ev.button_index == MOUSE_BUTTON_RIGHT:
+			bolt_buf = 0.22
+	if ev is InputEventKey and ev.pressed and not ev.echo:
+		match ev.physical_keycode:
+			KEY_SPACE, KEY_SHIFT:
+				try_dash()
+			KEY_E:
+				interact()
+			KEY_Q:
+				cast_nova()
+			KEY_R:
+				cast_spark()
+			KEY_F:
+				cast_ward()
+			KEY_ESCAPE, KEY_P:
+				hud.show_pause()
+
+
+func _key(k: int) -> bool:
+	return Input.is_physical_key_pressed(k)
+
+
+func _update_player(dt: float) -> void:
+	atk_cd -= dt
+	bolt_cd -= dt
+	atk_buf -= dt
+	bolt_buf -= dt
+	dash_buf -= dt
+	growl_cd -= dt
+	for k in pcd:
+		pcd[k] = maxf(0.0, pcd[k] - dt)
+	if dash_stock < stats["dash_n"]:
+		dash_cd -= dt
+		if dash_cd <= 0.0:
+			dash_stock += 1
+			dash_cd = stats["dash_cd"] if dash_stock < stats["dash_n"] else 0.0
+	invuln -= dt
+	combo_t -= dt
+	input_lock -= dt
+	flash = maxf(0.0, flash - dt * 5.0)
+	pmat.set_shader_parameter("flash", flash)
+	oil = minf(max_oil, oil + stats["oil_regen"] * dt)
+
+	var mv := Vector2.ZERO
+	var want_atk := false
+	var want_bolt := false
+	if dead:
+		pass
+	elif bot:
+		if not bot_manual:
+			_bot_think()
+		mv = bot_mv
+		want_atk = bot_atk
+		want_bolt = bot_bolt
+	else:
+		mv.x = float(_key(KEY_D) or _key(KEY_RIGHT)) - float(_key(KEY_A) or _key(KEY_LEFT))
+		mv.y = float(_key(KEY_S) or _key(KEY_DOWN)) - float(_key(KEY_W) or _key(KEY_UP))
+		var m := get_global_mouse_position() - pcenter()
+		if m.length() > 2.0:
+			aim = m.normalized()
+		if input_lock <= 0.0:
+			want_atk = Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT) or atk_buf > 0.0
+			want_bolt = Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT) or bolt_buf > 0.0
+		if dash_buf > 0.0 and dash_stock > 0 and dash_t <= 0.0:
+			try_dash()
+	mv = mv.normalized()
+	last_mv = mv
+
+	if dash_t > 0.0:
+		dash_t -= dt
+		pvel = dash_dir * 330.0
+		fx.spark(pcenter(), Color(0.4, 0.85, 0.95, 0.7), 2, 12.0, 0.25, 2.5)
+		if stats["trail"] > 0.0:
+			fires.append({"p": ppos, "t": 2.2})
+		if stats["sear"] > 0.0:
+			for e in enemies:
+				if not e.dead and not dash_hit.has(e) and (e.center() - pcenter()).length() < e.hit_r + 9.0:
+					dash_hit.append(e)
+					e.hurt(stats["sear"], dash_dir * 60.0)
+	else:
+		pvel = pvel.move_toward(mv * stats["speed"], 1900.0 * dt)
+	pknock = pknock.move_toward(Vector2.ZERO, 620.0 * dt)
+	ppos = move_body(ppos, (pvel + pknock) * dt, 4.0)
+	pnode.position = ppos
+
+	if not dead and dash_t <= 0.0:
+		if want_atk and atk_cd <= 0.0:
+			do_slash()
+		elif want_bolt and bolt_cd <= 0.0 and oil >= 18.0:
+			do_bolt()
+
+	# Animation.
+	var moving := mv != Vector2.ZERO and dash_t <= 0.0
+	if moving:
+		step_t += dt
+		if step_t > 0.3:
+			step_t = 0.0
+			Sfx.play("step", -17.0, 0.2)
+	atk_pose -= dt
+	var pframe := "player_idle%d" % (int(anim_t * 2.0) % 2)
+	if dash_t > 0.0:
+		pframe = "player_dash"
+	elif atk_pose > 0.0:
+		pframe = "player_atk"
+	elif moving:
+		pframe = "player_w%d" % (int(anim_t * 9.0) % 4)
+	pspr.texture = Art.tex[pframe]
+	pspr.flip_h = aim.x < 0.0
+	pemi.texture = Art.tex[pframe + "_e"]
+	pemi.flip_h = pspr.flip_h
+	pemi.visible = not dead
+	_update_staff(dt, moving)
+	pspr.modulate.a = 0.45 if invuln > 0.0 and dash_t <= 0.0 and int(anim_t * 22.0) % 2 == 0 and not dead else 1.0
+	staff.modulate = pspr.modulate
+
+	# The lamp: it flickers, it can be stolen, and it dies with its bearer.
+	light_k = move_toward(light_k, 0.0 if dead else light_target, dt * (0.9 if dead else 0.5))
+	var flick := 0.95 + 0.04 * sin(anim_t * 11.0) + 0.03 * sin(anim_t * 23.7)
+	nova_flash = maxf(0.0, nova_flash - dt * 3.0)
+	plight.texture_scale = 1.85 * stats["light"] * (0.35 + 0.65 * light_k) * (1.0 + 0.5 * nova_flash)
+	plight.energy = 1.3 * flick * (0.25 + 0.75 * light_k) + 1.6 * nova_flash
+	pglow.modulate.a = 0.5 * flick * light_k
+	var reach: Vector2 = get_viewport().get_visible_rect().size * 0.5 / cam.zoom.x + Vector2(125, 125)
+	for l in lights:
+		var off: Vector2 = l.global_position - cam.position
+		l.enabled = absf(off.x) < reach.x and absf(off.y) < reach.y
+
+
+func _bot_think() -> void:
+	bot_mv = Vector2.ZERO
+	bot_atk = false
+	bot_bolt = false
+	var best = null
+	var bd := 220.0
+	for e in enemies:
+		if e.dead:
+			continue
+		var d: float = (e.position - ppos).length()
+		if d < bd:
+			bd = d
+			best = e
+	if best == null:
+		return
+	var v: Vector2 = best.center() - pcenter()
+	aim = v.normalized()
+	if bd > 20.0 and bot_allow["move"]:
+		bot_mv = aim
+	bot_atk = bd < 32.0 and bot_allow["atk"]
+	bot_bolt = bd > 42.0 and bot_allow["bolt"]
+	if bot_allow["dash"] and rng.randf() < 0.012:
+		try_dash()
+	if bot_allow["nova"] and bd < 40.0:
+		cast_nova()
+	elif bot_allow["spark"] and bd < 150.0:
+		cast_spark()
+	if bot_allow["ward"] and bd < 60.0 and rng.randf() < 0.02:
+		cast_ward()
+
+
+func try_dash() -> void:
+	if dead:
+		return
+	if dash_stock <= 0 or dash_t > 0.0:
+		dash_buf = 0.15
+		return
+	dash_buf = 0.0
+	dash_dir = last_mv if last_mv != Vector2.ZERO else aim
+	dash_t = 0.16
+	dash_stock -= 1
+	if dash_cd <= 0.0:
+		dash_cd = stats["dash_cd"]
+	invuln = maxf(invuln, 0.3)
+	dash_hit.clear()
+	Sfx.play("dash", -5.0)
+	fx.spark(pcenter(), Color(0.5, 0.9, 1.0), 8, 50.0, 0.3, 2.0)
+
+
+func do_slash() -> void:
+	combo = combo + 1 if combo_t > 0.0 and combo < 3 else 1
+	combo_t = 0.75
+	atk_buf = 0.0
+	var heavy := combo == 3
+	var reach: float = (34.0 if heavy else 27.0) * stats["reach"]
+	var arc := deg_to_rad(200.0 if heavy else 125.0)
+	var dmg: float = stats["dmg"] * (1.8 if heavy else 1.0)
+	atk_cd = 0.44 if heavy else 0.27
+	# The staff sweeps through the arc, alternating sides; the heavy blow goes all the way round.
+	swing_dir = -swing_dir
+	var sweep := arc * (0.5 if heavy else 0.46)
+	swing_from = aim.angle() - sweep * swing_dir
+	swing_to = aim.angle() + sweep * swing_dir
+	swing_dur = 0.2 if heavy else 0.13
+	swing_t = 0.0
+	atk_pose = 0.22
+	var o := pcenter()
+	var hit := 0
+	for e in enemies:
+		if e.dead:
+			continue
+		var v: Vector2 = e.center() - o
+		var d := v.length()
+		if d < reach + e.hit_r and (d < 9.0 or absf(aim.angle_to(v)) < arc * 0.5 + 0.2):
+			if rng.randf() < stats["crit"]:
+				e.hurt(dmg * 2.0, aim * 170.0, Color(1.0, 0.55, 0.15))
+				fx.spark(e.center(), Color(1.0, 0.8, 0.3), 10, 110.0, 0.35, 2.0)
+			else:
+				e.hurt(dmg * rng.randf_range(0.9, 1.1), aim * (150.0 if heavy else 95.0))
+			hit += 1
+	for p in props:
+		if p["type"] == "urn" and not p["done"]:
+			var v: Vector2 = p["pos"] - o
+			if v.length() < reach + 5.0 and absf(aim.angle_to(v)) < arc * 0.5 + 0.3:
+				_break_urn(p)
+	# A well-timed strike knocks hexes out of the air.
+	for s in shots:
+		if s["friendly"]:
+			continue
+		var v: Vector2 = s["pos"] - o
+		if v.length() < reach + 4.0 and absf(aim.angle_to(v)) < arc * 0.5 + 0.2:
+			s["life"] = 0.0
+			Sfx.play("clank", -2.0, 0.2)
+	if heavy and stats["wave"] > 0.0:
+		add_shot(o + aim * 10.0, aim * 200.0, true, dmg * 0.6 * stats["wave"], Color(1.0, 0.92, 0.7), 99, 0.75, 0.55)
+	pvel += aim * (75.0 if heavy else 40.0)
+	fx.slash(o + aim * 2.0, aim.angle(), reach, arc, Color(1.0, 0.7, 0.35, 0.95) if heavy else Color(1.0, 0.9, 0.65, 0.85), 0.2 if heavy else 0.15)
+	Sfx.play("slash3" if heavy else "slash", -4.0)
+	if hit > 0:
+		if heavy:
+			kick(0.05)
+		hitstop = 0.08 if heavy else 0.04
+		add_shake(4.0 if heavy else 2.0)
+		oil = minf(max_oil, oil + stats["siphon"] * hit)
+
+
+func do_bolt() -> void:
+	oil -= 18.0
+	bolt_cd = 0.38
+	bolt_buf = 0.0
+	pose = "point"
+	pose_t = 0.18
+	var n: int = stats["bolt_n"]
+	for i in n:
+		var a := aim.angle() + (i - (n - 1) * 0.5) * 0.2
+		add_shot(pcenter() + aim * 6.0, Vector2.from_angle(a) * 235.0, true, stats["bolt_dmg"], Color(1.0, 0.62, 0.2), stats["pierce"])
+	Sfx.play("bolt", -5.0)
+
+
+func add_shot(pos: Vector2, vel: Vector2, friendly: bool, dmg, col: Color, pierce: int = 0, size: float = 0.0, life: float = 0.0) -> void:
+	if size <= 0.0:
+		size = 0.38 if friendly else 0.32
+	var node := _glow(over, col, size, pos)
+	var core := Sprite2D.new()
+	core.texture = Art.tex["glow"]
+	core.material = Art.mat_add
+	core.scale = Vector2(0.4, 0.4)
+	node.add_child(core)
+	if friendly:
+		var l := PointLight2D.new()
+		l.texture = Art.tex["light"]
+		l.color = col
+		l.energy = 0.8
+		l.texture_scale = 2.4
+		node.add_child(l)
+	shots.append({"pos": pos, "vel": vel, "friendly": friendly, "dmg": dmg, "col": col, "pierce": pierce,
+		"life": life if life > 0.0 else (1.6 if friendly else 5.0), "node": node, "hit": [],
+		"r": 4.0 + (size - 0.38) * 22.0})
+
+
+func hurt_player(amount: int, from: Vector2, kb: float = 170.0) -> bool:
+	if dead or invuln > 0.0 or god:
+		return false
+	hp -= amount
+	invuln = 0.9
+	flash = 1.0
+	pknock = (ppos - from).normalized() * kb
+	add_shake(5.0)
+	hitstop = 0.06
+	hud.hurt = 1.0
+	Sfx.play("sting", -5.0)
+	Sfx.play("punch")
+	kick(0.06)
+	if hp <= 0 and spare_match and not match_used:
+		# The spare match: once per depth, the lamp relights itself.
+		match_used = true
+		hp = 2
+		invuln = 2.0
+		hud.say("The spare match catches.", 3.5, hud.C_EMBER)
+		Sfx.play("power", -3.0)
+		_nova_burst(70.0, 30.0)
+	fx.spark(pcenter(), Color(1.0, 0.3, 0.3), 12, 90.0, 0.4, 2.0)
+	if stats["thorns"] > 0.0:
+		fx.ring(ppos, 6.0, 46.0, 0.3, Color(1.0, 0.6, 0.2), false, 3.0)
+		for e in enemies:
+			if not e.dead and (e.position - ppos).length() < 46.0:
+				e.hurt(stats["thorns"], (e.position - ppos).normalized() * 160.0)
+	if hp <= 0:
+		hp = 0
+		dead = true
+		death_t = 1.6
+		Sfx.play("death", 0.0, 0.0)
+		Sfx.play_music("")
+		slow_t = 0.9
+		fx.spark(pcenter(), Color(1.0, 0.7, 0.3), 30, 110.0, 0.9, 2.0)
+		pspr.modulate = Color(0.5, 0.5, 0.6)
+	elif hp <= 2:
+		_say_once("low", "Keep the wick trimmed. Keep moving.")
+	return true
+
+
+## Sweeps loot and stains off the floor (the showcase resets between scenes).
+func tidy() -> void:
+	for p in pickups:
+		p["node"].queue_free()
+	pickups.clear()
+	decals.clear()
+	decal_node.queue_redraw()
+	fires.clear()
+
+
+func add_shake(a: float) -> void:
+	shake = maxf(shake, a)
+
+
+func scorch(pos: Vector2, r: float) -> void:
+	for k in 5:
+		decals.append({"p": pos + Vector2(rng.randf_range(-r, r), rng.randf_range(-r, r)) * 0.5,
+			"r": r * rng.randf_range(0.4, 0.8), "c": Color(0.03, 0.02, 0.02, 0.4)})
+	decal_node.queue_redraw()
+
+
+func _say_once(key: String, text: String) -> void:
+	if said.has(key):
+		return
+	said[key] = true
+	hud.say(text)
+
+
+# --- Enemies, shots, loot -------------------------------------------------------
+
+func on_wake(_e) -> void:
+	if growl_cd <= 0.0:
+		growl_cd = 0.7
+		Sfx.play("growl", 0.0, 0.2)
+	if depth == 1:
+		_say_once("wake1", "Those are keepers' robes. Those were keepers.")
+	elif depth == 3:
+		_say_once("wake3", "The ink's got up and walked. Of course it has.")
+
+
+func enemy_died(e) -> void:
+	kills += 1
+	hitstop = maxf(hitstop, 0.05)
+	add_shake(2.5)
+	Sfx.play("kill", -4.0)
+	fx.spark(e.center(), e.tint, 16, 95.0, 0.5, 2.0)
+	if decals.size() < 240:
+		# A ragged stain: a few overlapping blots rather than one clean disc.
+		for k in 4:
+			decals.append({"p": e.position + Vector2(rng.randf_range(-5, 5), rng.randf_range(-3, 3)),
+				"r": e.radius * rng.randf_range(0.35, 0.9), "c": Color(0.05, 0.03, 0.07, 0.4)})
+		decal_node.queue_redraw()
+	if stats["shatter"] > 0.0 and e.xp > 0:
+		fx.ring(e.position, 4.0, 34.0, 0.25, Color(1.0, 0.55, 0.15), false, 3.0)
+		fx.spark(e.center(), Color(1.0, 0.6, 0.2), 14, 120.0, 0.4, 2.0)
+		for o in enemies:
+			if o != e and not o.dead and (o.position - e.position).length() < 36.0:
+				o.hurt(stats["shatter"], (o.position - e.position).normalized() * 120.0, Color(1.0, 0.6, 0.2))
+	if e.spawn_idx >= 0:
+		dead_spawns.append(e.spawn_idx)
+	if e.xp > 0:
+		drop("cinder", e.center(), int(ceil(e.xp * stats["xp_mult"])))
+		var pity := 0.1 if hp <= 2 else 0.0
+		if rng.randf() < stats["heart_drop"] + pity:
+			drop("heart", e.position)
+		elif rng.randf() < 0.1:
+			drop("oil", e.position)
+	if e.kind == "slime":
+		for k in 2:
+			var c = spawn_enemy("slimelet", e.position + Vector2(k * 6.0 - 3.0, 0.0), e.room)
+			c.awake = true
+			c.st = 0.3 + 0.2 * k
+	if e.kind == "warden":
+		_boss_fell(e)
+	_update_seal(false)
+
+
+func _purge() -> void:
+	var gone := false
+	for e in enemies:
+		if e.dead:
+			gone = true
+			break
+	if not gone:
+		return
+	var alive: Array = []
+	for e in enemies:
+		if e.dead:
+			e.queue_free()
+		else:
+			alive.append(e)
+	enemies = alive
+
+
+func _update_seal(quiet: bool) -> void:
+	if exit_room < 0:
+		sealed = false
+		return
+	var now := false
+	for e in enemies:
+		if not e.dead and e.room == exit_room:
+			now = true
+			break
+	if sealed and not now and not quiet:
+		Sfx.play("lock")
+		Sfx.play("chime", -4.0)
+		hud.say("The seal on the stair gutters out.", 3.5, hud.C_EMBER)
+	sealed = now
+
+
+func drop(type: String, pos: Vector2, n: int = 1) -> void:
+	for i in n:
+		var s: Sprite2D
+		if type == "cinder":
+			s = _glow(over, Color(1.0, 0.62, 0.2, 1.0), 0.13, pos)
+			var core := Sprite2D.new()
+			core.texture = Art.tex["px"]
+			core.material = Art.mat_unlit
+			core.scale = Vector2(12, 12)
+			core.modulate = Color(1.0, 0.95, 0.7)
+			s.add_child(core)
+		else:
+			s = Sprite2D.new()
+			s.texture = Art.tex["heart2" if type == "heart" else "oil"]
+			s.material = Art.mat_unlit
+			s.position = pos
+			over.add_child(s)
+		pickups.append({"type": type, "node": s, "pos": pos, "t": 0.0,
+			"vel": Vector2.from_angle(rng.randf() * TAU) * rng.randf_range(25.0, 95.0)})
+
+
+func _update_shots(dt: float) -> void:
+	var i := shots.size() - 1
+	while i >= 0:
+		var s: Dictionary = shots[i]
+		s["pos"] += s["vel"] * dt
+		s["life"] -= dt
+		var pos: Vector2 = s["pos"]
+		var gone: bool = s["life"] <= 0.0 or solid_at(pos)
+		if not gone and s["friendly"]:
+			for e in enemies:
+				if e.dead or s["hit"].has(e):
+					continue
+				if (e.center() - pos).length() < e.hit_r + s["r"]:
+					e.hurt(s["dmg"], s["vel"].normalized() * 90.0)
+					if stats["burn"] > 0.0 and not e.dead:
+						e.burn_t = 3.0
+						e.burn_dps = stats["burn"]
+					s["hit"].append(e)
+					if s["pierce"] <= 0:
+						gone = true
+						break
+					s["pierce"] -= 1
+			for p in props:
+				if p["type"] == "urn" and not p["done"] and (p["pos"] - pos).length() < 8.0:
+					_break_urn(p)
+		elif not gone and (pcenter() - pos).length() < 6.5:
+			if hurt_player(s["dmg"], pos - s["vel"] * 0.1, 130.0):
+				gone = true
+		s["node"].position = pos
+		if gone:
+			fx.spark(pos, s["col"], 7, 55.0, 0.3, 1.5)
+			s["node"].queue_free()
+			shots.remove_at(i)
+		i -= 1
+
+
+func _update_pickups(dt: float) -> void:
+	var pc := pcenter()
+	var i := pickups.size() - 1
+	while i >= 0:
+		var p: Dictionary = pickups[i]
+		p["t"] += dt
+		var pos: Vector2 = p["pos"]
+		var vel: Vector2 = p["vel"]
+		var type: String = p["type"]
+		var wanted := not dead and (type == "cinder" or (type == "heart" and hp < max_hp) or (type == "oil" and oil < max_oil - 1.0))
+		var to := pc - pos
+		var d := to.length()
+		if wanted and p["t"] > 0.3 and d < (70.0 if type == "cinder" else 34.0) * stats["magnet"]:
+			vel = vel.move_toward(to / maxf(d, 0.01) * 260.0, 1400.0 * dt)
+		else:
+			vel = vel.move_toward(Vector2.ZERO, 260.0 * dt)
+		var np := pos + vel * dt
+		if solid_at(np) and not (wanted and d < 70.0 * stats["magnet"]):
+			vel = Vector2.ZERO
+			np = pos
+		p["pos"] = np
+		p["vel"] = vel
+		var node: Sprite2D = p["node"]
+		node.position = np + Vector2(0, sin(p["t"] * 5.0) * 1.2 if type != "cinder" else 0.0)
+		if wanted and p["t"] > 0.3 and d < 9.0:
+			match type:
+				"cinder":
+					add_xp(1)
+					Sfx.play("cinder", -9.0, 0.15)
+				"heart":
+					hp = mini(max_hp, hp + 2)
+					Sfx.play("heart")
+					hud.float_text(ppos + Vector2(0, -18), "+1 heart", Color(1.0, 0.45, 0.55))
+				"oil":
+					oil = minf(max_oil, oil + 35.0)
+					Sfx.play("oil")
+					hud.float_text(ppos + Vector2(0, -18), "+oil", Color(1.0, 0.7, 0.25))
+			node.queue_free()
+			pickups.remove_at(i)
+		i -= 1
+
+
+func add_xp(n: int) -> void:
+	xp += n
+	if xp >= xp_next and levelup_t < 0.0:
+		levelup_t = 0.3
+
+
+func _level_up() -> void:
+	xp -= xp_next
+	level += 1
+	xp_next = 14 + level * 8
+	Sfx.play("levelup")
+	fx.ring(ppos, 6.0, 60.0, 0.5, Color(1.0, 0.8, 0.4), false, 3.0)
+	kick(0.07)
+	_offer_boons("The warmth below reaches up to you", "Level %d  -  choose a kindling" % level)
+
+
+func _offer_boons(title: String, sub: String) -> void:
+	var pool: Array = []
+	for b in Story.BOONS:
+		if b.get("unique", false) and boons.has(b["id"]):
+			continue
+		pool.append(b)
+	var opts: Array = []
+	for i in 3:
+		var j := rng.randi() % pool.size()
+		opts.append(pool[j])
+		pool.remove_at(j)
+	hud.show_choice(title, sub, opts, func(i): apply_boon(opts[i]["id"]))
+
+
+func apply_boon(id: String) -> void:
+	boons.append(id)
+	match id:
+		"edge":
+			stats["dmg"] *= 1.25
+		"reach":
+			stats["reach"] *= 1.2
+		"swift":
+			stats["speed"] *= 1.12
+		"heart":
+			max_hp += 2
+			hp = mini(max_hp, hp + 2)
+		"flask":
+			max_oil += 35.0
+			oil = max_oil
+		"kindle":
+			stats["bolt_dmg"] *= 1.4
+		"twin":
+			stats["bolt_n"] += 2
+		"step":
+			stats["dash_cd"] *= 0.75
+		"wick":
+			stats["light"] *= 1.2
+			stats["oil_regen"] += 1.5
+		"glean":
+			stats["heart_drop"] += 0.06
+		"sear":
+			stats["sear"] = 16.0
+		"siphon":
+			stats["siphon"] += 3.0
+		"thorn":
+			stats["thorns"] = 18.0
+		"pierce":
+			stats["pierce"] += 1
+		"orbit":
+			stats["orbit"] += 2
+			_sync_motes()
+		"wave":
+			stats["wave"] += 1.0
+		"burn":
+			stats["burn"] += 6.0
+		"shatter":
+			stats["shatter"] += 12.0
+		"blink":
+			stats["dash_n"] = 2
+			dash_stock = 2
+		"trail":
+			stats["trail"] = 5.0
+		"magnet":
+			stats["magnet"] *= 1.8
+			stats["xp_mult"] += 0.25
+		"crit":
+			stats["crit"] += 0.15
+		"focus":
+			stats["power"] *= 1.3
+			stats["cdr"] *= 0.82
+	if xp >= xp_next:
+		levelup_t = 0.5
+
+
+func boon_names() -> Array:
+	var out: Array = []
+	for b in Story.BOONS:
+		var n := boons.count(b["id"])
+		if n == 1:
+			out.append(b["name"])
+		elif n > 1:
+			out.append("%s x%d" % [b["name"], n])
+	return out
+
+
+# --- Props ----------------------------------------------------------------------
+
+func _break_urn(p: Dictionary) -> void:
+	p["done"] = true
+	p["node"].queue_free()
+	var pos: Vector2 = p["pos"]
+	Sfx.play("urn", -4.0, 0.15)
+	fx.spark(pos + Vector2(0, -4), Color(0.8, 0.55, 0.35), 10, 70.0, 0.4, 2.0, 160.0)
+	drop("cinder", pos, rng.randi_range(1, 3))
+	var roll := rng.randf()
+	if roll < 0.1:
+		drop("heart", pos)
+	elif roll < 0.3:
+		drop("oil", pos)
+
+
+func _update_props(dt: float) -> void:
+	near_prop = null
+	var bd := 26.0
+	for p in props:
+		if p["done"] and p["type"] != "lamp" and p["type"] != "chest":
+			continue
+		p["t"] += dt
+		var pos: Vector2 = p["pos"]
+		var t: float = p["t"]
+		var near := (pos - ppos).length_squared() < 52000.0
+		match p["type"]:
+			"brazier":
+				if near:
+					if vis_at(pos) and rng.randf() < dt * 16.0:
+						fx.flame(pos + Vector2(0, -9))
+					p["light"].energy = 0.95 * (0.92 + 0.08 * sin(t * 9.0) + 0.05 * sin(t * 21.3))
+			"lamp":
+				if p["done"] and near and vis_at(pos) and rng.randf() < dt * 10.0:
+					fx.flame(pos + Vector2(0, -15), Color(1.0, 0.85, 0.4, 0.8))
+			"page":
+				p["spr"].position.y = sin(t * 2.5) * 1.5 - 2.0
+				p["glow"].modulate.a = 0.4 + 0.15 * sin(t * 3.0)
+			"plaque":
+				p["glow"].modulate.a = 0.22 + 0.1 * sin(t * 2.0)
+			"stairs":
+				p["glow"].visible = sealed
+				p["glow"].modulate.a = 0.55 + 0.2 * sin(t * 4.0)
+			"cage":
+				var pulse := 1.0 + 0.12 * sin(t * 2.2) + 0.05 * sin(t * 7.0)
+				p["glow"].scale = Vector2(0.32, 0.32) * pulse
+				p["halo"].modulate.a = 0.4 + 0.15 * sin(t * 2.2)
+				if near and rng.randf() < dt * 8.0:
+					fx.spark(pos + Vector2(0, -6), Color(1.0, 0.8, 0.4, 0.9), 1, 14.0, 0.9, 1.5, -18.0)
+		if (p["done"] and p["type"] != "lamp") or not PROMPTS.has(p["type"]):
+			continue
+		if p["type"] == "cage" and not boss_dead:
+			continue
+		var d := (pos - ppos).length()
+		if d < bd:
+			bd = d
+			near_prop = p
+
+
+func prompt_for(p: Dictionary) -> String:
+	if p["type"] == "stairs" and sealed:
+		return "Sealed"
+	if p["type"] == "lamp" and p["done"]:
+		return "Rest at the lamp  (save)"
+	return PROMPTS[p["type"]]
+
+
+func interact() -> void:
+	var p = near_prop
+	if p == null or dead:
+		return
+	var pos: Vector2 = p["pos"]
+	match p["type"]:
+		"chest":
+			p["done"] = true
+			p["spr"].texture = Art.tex["chest1"]
+			Sfx.play("chest")
+			Sfx.play("coins")
+			Sfx.play("jingle", -8.0)
+			fx.spark(pos + Vector2(0, -4), Color(1.0, 0.85, 0.4), 16, 70.0, 0.6, 2.0)
+			drop("cinder", pos + Vector2(0, 4), rng.randi_range(8, 13))
+			if rng.randf() < 0.5:
+				drop("heart", pos + Vector2(0, 4))
+			if rng.randf() < 0.6:
+				drop("oil", pos + Vector2(0, 4))
+		"lamp":
+			if p["done"]:
+				# Already lit: resting here just writes the save again.
+				oil = max_oil
+				Sfx.play("chime", -4.0)
+				fx.spark(pos + Vector2(0, -14), Color(1.0, 0.85, 0.45), 12, 50.0, 0.6, 1.5)
+				hud.say("You rest by the lamp. Your descent is saved.", 3.0, hud.C_EMBER)
+			else:
+				_light_lamp(p)
+				hp = mini(max_hp, hp + 2)
+				oil = max_oil
+				Sfx.play("fire")
+				Sfx.play("whoomp", -4.0)
+				fx.spark(pos + Vector2(0, -14), Color(1.0, 0.85, 0.45), 24, 80.0, 0.7, 2.0)
+				hud.say("The wayside lamp catches. Wounds ease, the flask fills, and your descent is saved.", 4.5, hud.C_EMBER)
+				_say_once("lamp", "\"Light every one you pass,\" she used to say. \"Somebody's always behind you.\"")
+			cine(3.9, 1.2, pos + Vector2(0, -8))
+			save_game(p["idx"])
+		"page":
+			p["done"] = true
+			p["node"].queue_free()
+			pages += 1
+			Sfx.play("page")
+			add_xp(5)
+			hud.dialog([Story.PAGES[depth - 1]])
+		"plaque":
+			if not p.has("read"):
+				p["read"] = true
+				pages += 1
+				add_xp(3)
+			Sfx.play("page", -4.0)
+			hud.dialog([Story.PLAQUES[depth - 1]])
+		"relic":
+			p["done"] = true
+			lights.erase(p["light"])
+			p["node"].queue_free()
+			Sfx.play("relic")
+			Sfx.play("power", -4.0)
+			fx.spark(pos + Vector2(0, -12), Color(1.0, 0.85, 0.45), 30, 90.0, 0.8, 2.0)
+			cine(4.2, 1.0, pos + Vector2(0, -8))
+			if depth > Story.RELICS.size():
+				# Past the last relic, the stand holds a cache of kindling instead.
+				_offer_boons("A cache of kindling", "Maren left these on her way down. Take one.")
+				return
+			var rel: Dictionary = Story.RELICS[depth - 1]
+			grant_power(rel["power"])
+			var how: String = "" if rel["key"] == "" else "\n\n[ Press %s to use it. ]" % rel["key"]
+			hud.dialog([["RELIC  -  " + (rel["name"] as String).to_upper(), rel["text"] + how]])
+		"stairs":
+			if sealed:
+				Sfx.play("thud", -8.0)
+				hud.say("Sealed. Something in this room still holds it shut.", 3.0, hud.C_EMBER)
+			else:
+				Sfx.play("stairs")
+				cine(4.6, 1.5, pos)
+				hud.fade_through(func(): load_floor(depth + 1))
+		"cage":
+			Sfx.play("ember")
+			hud.show_choice("Your hands now, Lampwright", "The latch is small and plain.", Story.CHOICE,
+				func(i): main.ending(i))
+
+
+# --- Camera, decals, scripted moments ------------------------------------------
+
+## Holds the camera on a point (or just a zoom level) for a moment.
+func cine(zoom: float, secs: float, at = null) -> void:
+	cine_zoom = zoom
+	cine_t = secs
+	cine_has_pos = at != null
+	if at != null:
+		cine_pos = at
+
+
+## A quick punch in (positive) or out (negative) that settles by itself.
+func kick(a: float) -> void:
+	if absf(a) > absf(zoom_kick):
+		zoom_kick = a
+
+
+## The camera leads where Wren is heading and looking, pulls back as a fight
+## grows, frames the Warden, and leans in for conversations and deaths.
+func _update_camera(dt: float) -> void:
+	var vp := get_viewport()
+	var talking: bool = hud.modal == "dialog" or hud.modal == "choice"
+	var look := Vector2.ZERO
+	if not bot and not dead and not hud.blocking():
+		look = (vp.get_mouse_position() - vp.get_visible_rect().size * 0.5) / cam.zoom.x * 0.18
+	var target := ppos + Vector2(0, -6) + look
+	if not hud.blocking():
+		target += pvel * 0.16
+	var near := 0
+	for e in enemies:
+		if e.awake and not e.dead and (e.position - ppos).length_squared() < 30000.0:
+			near += 1
+	var zt := 3.0 - clampf((near - 2) * 0.07, 0.0, 0.42)
+	var fighting_boss: bool = boss_started and not boss_dead and is_instance_valid(boss)
+	if fighting_boss:
+		zt = 2.6
+		target = target.lerp(boss.position + Vector2(0, -12), 0.6 if talking else 0.35)
+	if dead:
+		zt = 4.4
+		target = ppos + Vector2(0, -6)
+	elif talking:
+		zt = 3.7
+		if near_prop != null and not fighting_boss:
+			target = target.lerp(near_prop["pos"], 0.45)
+	if cine_t > 0.0:
+		cine_t -= dt
+		zt = cine_zoom
+		if cine_has_pos:
+			target = cine_pos
+	intro_t = maxf(0.0, intro_t - dt)
+	if not cam_script:
+		cam_zoom = lerpf(cam_zoom, zt, 1.0 - exp(-dt * 3.0))
+		zoom_kick = lerpf(zoom_kick, 0.0, 1.0 - exp(-dt * 9.0))
+		var z := cam_zoom * (1.0 + zoom_kick)
+		cam.zoom = Vector2(z, z)
+	cam.position = cam.position.lerp(target, 1.0 - exp(-dt * (4.5 if cine_t > 0.0 or talking else 9.0)))
+	shake = maxf(0.0, shake - dt * 22.0)
+	cam.offset = Vector2(rng.randf_range(-1.0, 1.0), rng.randf_range(-1.0, 1.0)) * shake
+
+
+func _draw_decals() -> void:
+	for d in decals:
+		decal_node.draw_circle(d["p"], d["r"], d["c"])
+
+
+func _update_events(dt: float) -> void:
+	if dead:
+		death_t -= dt
+		if death_t <= 0.0 and not death_shown:
+			death_shown = true
+			main.player_died()
+		return
+	if levelup_t >= 0.0:
+		levelup_t -= dt
+		if levelup_t < 0.0:
+			_level_up()
+			return
+	if boss != null and not boss_started and (boss.position - ppos).length() < 105.0:
+		boss_started = true
+		hud.dialog(Story.BOSS_RETRY if main.boss_seen else Story.BOSS_INTRO, _boss_begin)
+		main.boss_seen = true
+		return
+	if boss_end_t >= 0.0:
+		boss_end_t -= dt
+		if boss_end_t < 0.0:
+			hud.dialog(Story.BOSS_END, func(): hud.say("The Ember waits in its cage.", 5.0, hud.C_EMBER))
+
+
+func _boss_begin() -> void:
+	boss.rouse()
+	Sfx.play("roar")
+	Sfx.play("gong")
+	Sfx.play_music("boss")
+	add_shake(6.0)
+	fx.ring(boss.position, 8.0, 80.0, 0.6, Color(1.0, 0.5, 0.2), false, 3.0)
+
+
+func boss_phase(p: int) -> void:
+	kick(-0.12)
+	Sfx.play("roar", 0.0)
+	Sfx.play("gong")
+	add_shake(8.0)
+	fx.ring(boss.position, 8.0, 100.0, 0.6, Color(1.0, 0.5, 0.2), false, 4.0)
+	hud.say(Story.BOSS_TAUNTS[p - 2], 5.0, hud.C_EMBER)
+	if p == 3:
+		light_target = 0.45
+	# Shove Wren clear and sweep the air so a phase change is never a cheap hit.
+	var away: Vector2 = ppos - boss.position
+	if away.length() < 70.0:
+		pknock = away.normalized() * 260.0
+	for s in shots:
+		if not s["friendly"]:
+			s["life"] = 0.0
+
+
+func _boss_fell(e) -> void:
+	boss_dead = true
+	light_target = 1.0
+	slow_t = 1.5
+	cine(4.2, 2.6, e.position + Vector2(0, -12))
+	hitstop = 0.25
+	add_shake(12.0)
+	Sfx.play("boom")
+	Sfx.play("bell", 2.0, 0.0)
+	Sfx.play_music("title")
+	fx.spark(e.center(), Color(1.0, 0.6, 0.2), 60, 170.0, 1.2, 3.0)
+	fx.ring(e.position, 10.0, 160.0, 0.9, Color(1.0, 0.7, 0.3), false, 5.0)
+	scorch(e.position, 16.0)
+	for s in shots:
+		s["life"] = 0.0
+	for o in enemies:
+		if o != e and not o.dead:
+			o.xp = 0
+			o.die()
+	boss_end_t = 1.8
+
+
+# --- Powers ---------------------------------------------------------------------
+
+func grant_power(id: String) -> void:
+	if id == "match":
+		spare_match = true
+		return
+	powers[id] = true
+	pcd[id] = 0.0
+
+
+func _power_ready(id: String) -> bool:
+	if dead or not powers[id] or pcd[id] > 0.0:
+		return false
+	var cost: float = Story.POWERS[id]["cost"]
+	if oil < cost:
+		hud.float_text(ppos + Vector2(0, -20), "no oil", Color(1.0, 0.5, 0.3))
+		Sfx.play("ui", 0.0)
+		pcd[id] = 0.3
+		return false
+	oil -= cost
+	pcd[id] = Story.POWERS[id]["cd"] * stats["cdr"]
+	return true
+
+
+## Q: a ring of fire that throws everything back.
+func cast_nova() -> void:
+	if not _power_ready("nova"):
+		return
+	_nova_burst(64.0, 24.0 * stats["power"] * (1.0 + 0.06 * (level - 1)))
+
+
+func _nova_burst(radius: float, dmg: float) -> void:
+	pose = "raise"
+	pose_t = 0.35
+	var o := pcenter()
+	for e in enemies:
+		if e.dead:
+			continue
+		var v: Vector2 = e.center() - o
+		if v.length() < radius + e.hit_r:
+			e.hurt(dmg, v.normalized() * 240.0, Color(1.0, 0.6, 0.2))
+			e.stun = maxf(e.stun, 0.4)
+	for s in shots:
+		if not s["friendly"] and (s["pos"] - o).length() < radius + 6.0:
+			s["life"] = 0.0
+	for p in props:
+		if p["type"] == "urn" and not p["done"] and (p["pos"] - ppos).length() < radius:
+			_break_urn(p)
+	fx.ring(ppos, 6.0, radius, 0.28, Color(1.0, 0.75, 0.3), false, 6.0)
+	fx.ring(ppos, 4.0, radius * 0.8, 0.4, Color(1.0, 0.45, 0.1, 0.5), false, 3.0)
+	fx.spark(o, Color(1.0, 0.7, 0.25), 50, 220.0, 0.55, 2.5)
+	scorch(ppos, 14.0)
+	add_shake(7.0)
+	kick(-0.08)
+	hitstop = maxf(hitstop, 0.06)
+	nova_flash = 1.0
+	Sfx.play("fire", 2.0)
+	Sfx.play("boom", -6.0)
+
+
+## R: lightning that picks a target near where you are aiming, then chains.
+func cast_spark() -> void:
+	if not powers["spark"] or pcd["spark"] > 0.0 or dead:
+		return
+	var o := pcenter()
+	var focus := o + aim * 70.0
+	var first = null
+	var bd := 1e9
+	for e in enemies:
+		if e.dead or (e.center() - o).length() > 190.0 or not los(o, e.center()):
+			continue
+		var d: float = (e.center() - focus).length()
+		if d < bd:
+			bd = d
+			first = e
+	if first == null:
+		return
+	if not _power_ready("spark"):
+		return
+	var dmg: float = 18.0 * stats["power"] * (1.0 + 0.06 * (level - 1))
+	pose = "point"
+	pose_t = 0.3
+	var from := o
+	var cur = first
+	var struck: Array = []
+	for jump in 6:
+		struck.append(cur)
+		var to: Vector2 = cur.center()
+		fx.bolt(from, to, Color(0.65, 0.85, 1.0))
+		fx.spark(to, Color(0.7, 0.9, 1.0), 8, 90.0, 0.3, 1.5)
+		cur.hurt(dmg, (to - from).normalized() * 60.0, Color(0.7, 0.9, 1.0))
+		cur.stun = maxf(cur.stun, 0.7)
+		dmg *= 0.85
+		from = to
+		var nxt = null
+		var nd := 82.0
+		for e in enemies:
+			if e.dead or struck.has(e):
+				continue
+			var d2: float = (e.center() - from).length()
+			if d2 < nd:
+				nd = d2
+				nxt = e
+		if nxt == null:
+			break
+		cur = nxt
+	add_shake(4.0)
+	nova_flash = maxf(nova_flash, 0.5)
+	Sfx.play("zap", 0.0)
+	Sfx.play("thunder")
+
+
+## F: a circle of hearth-light that slows and burns what enters it.
+func cast_ward() -> void:
+	if not _power_ready("ward"):
+		return
+	pose = "raise"
+	pose_t = 0.4
+	var node := Node2D.new()
+	node.position = ppos
+	over.add_child(node)
+	_glow(node, Color(1.0, 0.7, 0.3, 0.35), 1.6, Vector2.ZERO)
+	var l := PointLight2D.new()
+	l.texture = Art.tex["light"]
+	l.color = Color(1.0, 0.8, 0.5)
+	l.energy = 1.1
+	l.texture_scale = 1.3
+	node.add_child(l)
+	wards.append({"p": ppos, "t": 6.0, "r": 50.0, "node": node, "acc": 0.0})
+	fx.ring(ppos, 4.0, 50.0, 0.35, Color(1.0, 0.8, 0.4), false, 4.0)
+	Sfx.play("ward")
+	Sfx.play("fire", -6.0)
+
+
+func _sync_motes() -> void:
+	while motes.size() > stats["orbit"]:
+		motes.pop_back().queue_free()
+	while motes.size() < stats["orbit"]:
+		var m := _glow(over, Color(1.0, 0.65, 0.2, 1.0), 0.26, ppos)
+		var core := Sprite2D.new()
+		core.texture = Art.tex["glow"]
+		core.material = Art.mat_add
+		core.scale = Vector2(0.4, 0.4)
+		m.add_child(core)
+		motes.append(m)
+
+
+func _update_powers(dt: float) -> void:
+	# Hearth wards.
+	var i := wards.size() - 1
+	while i >= 0:
+		var wd: Dictionary = wards[i]
+		wd["t"] -= dt
+		wd["acc"] += dt
+		var wp: Vector2 = wd["p"]
+		var wr: float = wd["r"]
+		var pulse: bool = wd["acc"] >= 0.5
+		if pulse:
+			wd["acc"] = 0.0
+		for e in enemies:
+			if e.dead or (e.position - wp).length() > wr + e.radius:
+				continue
+			e.slow_t = 0.3
+			if pulse:
+				e.hurt(7.0 * stats["power"], Vector2.ZERO, Color(1.0, 0.75, 0.35))
+		for s in shots:
+			if not s["friendly"] and (s["pos"] - wp).length() < wr:
+				s["life"] = 0.0
+		if (ppos - wp).length() < wr:
+			oil = minf(max_oil, oil + 14.0 * dt)
+		if rng.randf() < dt * 20.0:
+			fx.flame(wp + Vector2.from_angle(rng.randf() * TAU) * wr * rng.randf_range(0.3, 1.0), Color(1.0, 0.7, 0.3, 0.7))
+		wd["node"].modulate.a = clampf(wd["t"], 0.0, 1.0)
+		if wd["t"] <= 0.0:
+			wd["node"].queue_free()
+			wards.remove_at(i)
+		i -= 1
+
+	# Cinder trail left by a dash.
+	fire_acc += dt
+	var burn_tick := fire_acc >= 0.25
+	if burn_tick:
+		fire_acc = 0.0
+	i = fires.size() - 1
+	while i >= 0:
+		var f: Dictionary = fires[i]
+		f["t"] -= dt
+		var fp: Vector2 = f["p"]
+		if rng.randf() < dt * 9.0:
+			fx.flame(fp + Vector2(rng.randf_range(-3.0, 3.0), 0.0))
+		if burn_tick:
+			for e in enemies:
+				if not e.dead and (e.position - fp).length() < 11.0 and e.orbit_cd <= 0.0:
+					e.orbit_cd = 0.25
+					e.hurt(stats["trail"], Vector2.ZERO, Color(1.0, 0.6, 0.2))
+		if f["t"] <= 0.0:
+			fires.remove_at(i)
+		i -= 1
+
+	# Ember motes.
+	if motes.size() > 0:
+		mote_a += dt * 3.4
+		var pc := pcenter()
+		for k in motes.size():
+			var mp := pc + Vector2.from_angle(mote_a + TAU * k / motes.size()) * 27.0
+			motes[k].position = mp
+			motes[k].visible = not dead
+			if dead:
+				continue
+			for e in enemies:
+				if not e.dead and e.orbit_cd <= 0.0 and (e.center() - mp).length() < e.hit_r + 4.0:
+					e.orbit_cd = 0.45
+					e.hurt(7.0 * stats["power"], (e.center() - pc).normalized() * 50.0, Color(1.0, 0.7, 0.3))
+			for s in shots:
+				if not s["friendly"] and (s["pos"] - mp).length() < 6.0:
+					s["life"] = 0.0
+
+
+## Poses the lantern-staff: swung through a strike, levelled to cast a bolt,
+## raised for a burst, trailing in a dash, and bobbing at Wren's side otherwise.
+func _update_staff(dt: float, moving: bool) -> void:
+	var face := -1.0 if aim.x < 0.0 else 1.0
+	var chest := Vector2(0, -8)
+	var rot := 0.0
+	var pos := Vector2(6.5 * face, -7.5)
+	var snap := false
+	if dead:
+		rot = 1.45 * face
+		pos = Vector2(7.0 * face, -1.0)
+	elif swing_t >= 0.0:
+		swing_t += dt / swing_dur
+		var k := clampf(swing_t, 0.0, 1.0)
+		k = 1.0 - (1.0 - k) * (1.0 - k)
+		var a := lerpf(swing_from, swing_to, k)
+		rot = a + PI * 0.5
+		pos = chest + Vector2.from_angle(a) * 4.0
+		snap = true
+		if swing_t >= 1.4:
+			swing_t = -1.0
+	elif pose_t > 0.0:
+		pose_t -= dt
+		if pose == "point":
+			rot = aim.angle() + PI * 0.5
+			pos = chest + aim * 5.0
+		else:
+			pos += Vector2(0, -6)
+	elif dash_t > 0.0:
+		rot = (-dash_dir).angle() + PI * 0.5
+		pos = chest - dash_dir * 3.0
+	elif moving:
+		var step := anim_t * 9.0 * PI * 0.5
+		rot = sin(step) * 0.09
+		pos.y -= absf(sin(step))
+	if snap:
+		staff.rotation = rot
+		staff.position = pos
+	else:
+		var k2 := 1.0 - exp(-dt * 20.0)
+		staff.rotation = lerp_angle(staff.rotation, rot, k2)
+		staff.position = staff.position.lerp(pos, k2)
+	var flip := face < 0.0
+	staff.flip_h = flip
+	staff.offset = Vector2(-4.5, -11.5) if flip else Vector2(-2.5, -11.5)
+	staff_e.flip_h = flip
+	staff_e.offset = staff.offset
+	staff_e.visible = not dead
+	# The glow rides on the lantern itself, so light swings with the staff.
+	pglow.position = staff.position + Vector2(-2.0 if flip else 2.0, -5.0).rotated(staff.rotation)
+
