@@ -152,6 +152,7 @@ const BOONS := [
 	{"id": "trail", "name": "Cinder Trail", "desc": "Your dash leaves a line of fire behind it.", "col": Color(1.0, 0.55, 0.2), "unique": true},
 	{"id": "magnet", "name": "Lodestone Wick", "desc": "Cinders fly to you from much farther off, and the fallen leave more of them.", "col": Color(1.0, 0.8, 0.4)},
 	{"id": "crit", "name": "Keen Eye", "desc": "+15% chance for a strike to land twice as hard.", "col": Color(1.0, 0.85, 0.55)},
+	{"id": "echo", "name": "Second Self", "desc": "Your echo strikes harder and comes back sooner after a dash.", "col": Color(0.55, 0.9, 0.95)},
 	{"id": "focus", "name": "Maren's Notes", "desc": "Flare Nova, Storm Spark and Hearth Ward hit 30% harder and return sooner.", "col": Color(0.7, 0.85, 1.0)},
 ]
 
@@ -178,6 +179,8 @@ const CAUSES := {
 		"tip": "The bell tolls before the charge. Put a wall behind you and step aside; strike it as it comes to stop it dead."},
 	"wisp": {"who": "a Cinder Skull", "how": "burst", "icon": "wisp0",
 		"tip": "Cinder Skulls burst when they reach you. Kill them at range with a bolt, or dash clear."},
+	"fire": {"who": "spilled oil", "how": "flames", "icon": "oil",
+		"tip": "Burning oil hurts whoever stands in it, Wren too. Throw the flask at them, and light it from afar with a bolt."},
 	"warden": {"who": "Maren", "how": "glaive", "icon": "warden_strike",
 		"tip": "She signals every blow. Watch her hands, not her eyes."},
 }
@@ -193,6 +196,7 @@ const WREN_WAKE := {
 	"slimelet": ["Little pieces, big trouble.", "Sweep the scraps, don't chase them."],
 	"brute": ["Bellringers again. I'll remember the bell this time.", "Wall at my back next time. Let it hit stone."],
 	"wisp": ["Kill the skulls first. Always the skulls first.", "Should have dashed. Should have dashed."],
+	"fire": ["My own fire. Throw it farther next time.", "Oil burns both ways. I knew that."],
 	"warden": ["Maren. I'm not done. Neither are you.", "She's slower after the third swing. I think."],
 }
 
@@ -264,5 +268,9 @@ const FEATS := [
 	{"id": "warden", "name": "The Hollow Warden", "desc": "Bring Maren down.", "stat": "wardens", "goal": 1, "reward": 120},
 	{"id": "duo", "name": "Kindred Flames", "desc": "Take a kindling that combines two.", "stat": "duos", "goal": 1, "reward": 30},
 	{"id": "stubborn", "name": "Stubborn", "desc": "Wake at the lamp ten times.", "stat": "deaths", "goal": 10, "reward": 30},
+	{"id": "grudge", "name": "Grudge Settled", "desc": "Put out the foe that named itself on you.", "stat": "nemeses", "goal": 1, "reward": 50},
+	{"id": "ignite", "name": "Oil and Ember", "desc": "Set twenty pools of oil alight.", "stat": "ignites", "goal": 20, "reward": 30},
+	{"id": "ambush", "name": "Out of the Dark", "desc": "Strike ten foes that lost you in the dark.", "stat": "ambushes", "goal": 10, "reward": 30},
+	{"id": "echo", "name": "Twice Over", "desc": "Land fifty blows with your echo.", "stat": "echo_hits", "goal": 50, "reward": 30},
 	{"id": "lamps", "name": "The Street Remembers", "desc": "Light every lamp in town.", "stat": "town", "goal": 9, "reward": 0},
 ]

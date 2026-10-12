@@ -7,6 +7,9 @@ const EnemyS = preload("res://scripts/enemy.gd")
 const FxS = preload("res://scripts/fx.gd")
 const Story = preload("res://scripts/story.gd")
 const View3DS = preload("res://scripts/view3d.gd")
+const SurfS = preload("res://scripts/surfaces.gd")
+const EchoS = preload("res://scripts/echo.gd")
+const Nemesis = preload("res://scripts/nemesis.gd")
 
 const TS := 16
 const AMBIENT := Color(0.14, 0.14, 0.23)
@@ -97,7 +100,9 @@ var stats := {"dmg": 10.0, "reach": 1.0, "speed": 80.0, "bolt_dmg": 13.0, "bolt_
 	"power": 1.0, "cdr": 1.0, "orbit": 0, "wave": 0.0, "burn": 0.0, "shatter": 0.0, "dash_n": 1, "trail": 0.0,
 	"magnet": 1.0, "xp_mult": 1.0, "crit": 0.0,
 	# Kindlings that combine two others (Story.DUOS).
-	"wildfire": 0.0, "starfall": 0.0, "flashstep": 0.0, "chainburst": 0.0, "riposte": 0.0, "mote_k": 1.0}
+	"wildfire": 0.0, "starfall": 0.0, "flashstep": 0.0, "chainburst": 0.0, "riposte": 0.0, "mote_k": 1.0,
+	# Wren's echo: how hard its blows land, and how soon another can follow.
+	"echo": 0.5, "echo_cd": 3.0}
 var boons: Array = []
 var atk_cd := 0.0
 var bolt_cd := 0.0
@@ -183,6 +188,22 @@ var riposte_t := 0.0
 var dash_refunded := false
 ## The depth on which the bell tower's fresh choice was last used.
 var reroll_depth := -99
+## Oil, fire, webs and water on the floor (surfaces.gd).
+var surf
+var flask_cd := 0.0
+const FLASK_COST := 20.0
+## The lamp snuffed by choice: Wren hides in the dark, and relighting flares.
+var snuffed := false
+var snuff_t := 0.0
+var snuff_k := 0.0
+var flare_cd := 0.0
+## The last two seconds of Wren, for her echo to play again when she dashes.
+var echo_clock := 0.0
+var echo_track: Array = []
+var echo_blows: Array = []
+var echo_cd := 0.0
+## Whether the last blow Wren took came from her nemesis.
+var last_by_nem := false
 
 var bot := false
 var bot_manual := false
@@ -226,6 +247,9 @@ func _build_nodes() -> void:
 	decal_node.material = Art.mat_unlit
 	decal_node.draw.connect(_draw_decals)
 	add_child(decal_node)
+	surf = SurfS.new()
+	surf.g = self
+	add_child(surf)
 	ents = Node2D.new()
 	ents.y_sort_enabled = true
 	add_child(ents)
@@ -371,6 +395,8 @@ func load_floor(d: int, restore: Dictionary = {}) -> void:
 		var sd: Dictionary = slist[i]
 		var e = spawn_enemy(sd["kind"], tile_center(sd["tile"]), sd["room"], sd.get("elite", false))
 		e.spawn_idx = i
+	surf.grow(floor_seed)
+	_place_nemesis()
 
 	# Put back the map the player had already uncovered.
 	if restore.has("seen"):
@@ -388,6 +414,10 @@ func load_floor(d: int, restore: Dictionary = {}) -> void:
 			mini_tex.update(mini_img)
 
 	teleport(spawn_at)
+	snuffed = false
+	snuff_k = 0.0
+	echo_track.clear()
+	echo_blows.clear()
 	pvel = Vector2.ZERO
 	pknock = Vector2.ZERO
 	light_target = 1.0
@@ -558,6 +588,10 @@ func _clear_floor() -> void:
 		wd["node"].queue_free()
 	wards.clear()
 	fires.clear()
+	surf.clear()
+	for c in ents.get_children():
+		if c is EchoS:
+			c.queue_free()
 	enemies.clear()
 	props.clear()
 	shots.clear()
@@ -808,7 +842,7 @@ func _update_fov() -> void:
 		var dy := sin(ang) * 0.5
 		var x := ox
 		var y := oy
-		for s in 27:
+		for s in (8 if snuffed else 27):
 			var tx := int(x)
 			var ty := int(y)
 			if tx < 0 or ty < 0 or tx >= W or ty >= H:
@@ -891,6 +925,7 @@ func _process(dt: float) -> void:
 		e.tick(dt)
 	_update_shots(dt)
 	_update_powers(dt)
+	surf.tick(dt)
 	_update_pickups(dt)
 	_update_gloam(dt)
 	_update_props(dt)
@@ -908,12 +943,18 @@ func _unhandled_input(ev: InputEvent) -> void:
 			atk_buf = 0.22
 		elif ev.button_index == MOUSE_BUTTON_RIGHT:
 			bolt_buf = 0.22
+		elif ev.button_index == MOUSE_BUTTON_MIDDLE:
+			throw_flask()
 	if ev is InputEventKey and ev.pressed and not ev.echo:
 		match ev.physical_keycode:
 			KEY_SPACE, KEY_SHIFT:
 				try_dash()
 			KEY_E:
 				interact()
+			KEY_C:
+				toggle_snuff()
+			KEY_X:
+				throw_flask()
 			KEY_Q:
 				cast_nova()
 			KEY_R:
@@ -944,11 +985,18 @@ func _update_player(dt: float) -> void:
 			dash_cd = stats["dash_cd"] if dash_stock < stats["dash_n"] else 0.0
 	invuln -= dt
 	riposte_t -= dt
+	flask_cd -= dt
+	flare_cd -= dt
+	echo_cd -= dt
+	echo_clock += dt
+	if snuffed:
+		snuff_t += dt
 	combo_t -= dt
 	input_lock -= dt
 	flash = maxf(0.0, flash - dt * 5.0)
 	pmat.set_shader_parameter("flash", flash)
-	oil = minf(max_oil, oil + stats["oil_regen"] * dt)
+	# A snuffed lamp burns nothing, so the flask fills faster.
+	oil = minf(max_oil, oil + stats["oil_regen"] * (3.0 if snuffed else 1.0) * dt)
 
 	var mv := Vector2.ZERO
 	var want_atk := false
@@ -997,7 +1045,7 @@ func _update_player(dt: float) -> void:
 						dash_refunded = true
 						dash_stock = mini(stats["dash_n"], dash_stock + 1)
 	else:
-		pvel = pvel.move_toward(mv * stats["speed"], 1900.0 * dt)
+		pvel = pvel.move_toward(mv * stats["speed"] * surf.player_drag(), 1900.0 * dt)
 	pknock = pknock.move_toward(Vector2.ZERO, 620.0 * dt)
 	ppos = move_body(ppos, (pvel + pknock) * dt, 4.0)
 	pnode.position = ppos
@@ -1041,9 +1089,13 @@ func _update_player(dt: float) -> void:
 	nova_flash = maxf(0.0, nova_flash - dt * 3.0)
 	# The lamp burns on the oil in the flask: the emptier, the smaller the light.
 	var fuel := pow(clampf(oil / maxf(max_oil, 1.0), 0.0, 1.0), 0.7)
-	plight.texture_scale = 1.85 * stats["light"] * (0.35 + 0.65 * light_k) * (1.0 + 0.5 * nova_flash) * lerpf(0.5, 1.0, fuel)
-	plight.energy = 1.3 * flick * (0.25 + 0.75 * light_k) + 1.6 * nova_flash
-	pglow.modulate.a = 0.5 * flick * light_k
+	snuff_k = move_toward(snuff_k, 1.0 if snuffed else 0.0, dt * (5.0 if snuffed else 8.0))
+	plight.texture_scale = 1.85 * stats["light"] * (0.35 + 0.65 * light_k) * (1.0 + 0.5 * nova_flash) * lerpf(0.5, 1.0, fuel) \
+		* lerpf(1.0, 0.3, snuff_k)
+	plight.energy = (1.3 * flick * (0.25 + 0.75 * light_k)) * lerpf(1.0, 0.3, snuff_k) + 1.6 * nova_flash
+	pglow.modulate.a = 0.5 * flick * light_k * (1.0 - snuff_k)
+	staff_e.modulate.a = 1.0 - 0.85 * snuff_k
+	_record_echo(pframe)
 	var reach: Vector2 = get_viewport().get_visible_rect().size * 0.5 / cam.zoom.x + Vector2(125, 125)
 	for l in lights:
 		var off: Vector2 = l.global_position - cam.position
@@ -1105,6 +1157,192 @@ func _bot_think() -> void:
 		cast_ward()
 
 
+# --- The lamp snuffed, the flask thrown, the echo -----------------------------------
+
+func toggle_snuff() -> void:
+	if dead:
+		return
+	if snuffed:
+		relight()
+	else:
+		snuff()
+
+
+## Wren covers her lamp. Foes that cannot see her lose her, she sees only a
+## little way, and only eyes and footsteps tell her what is out there.
+func snuff() -> void:
+	if snuffed or dead:
+		return
+	snuffed = true
+	snuff_t = 0.0
+	_update_fov()
+	fx.spark(pcenter() + Vector2(0, -4), Color(0.5, 0.5, 0.55, 0.6), 10, 25.0, 0.8, 2.0, -30.0)
+	Sfx.play("whoomp", -14.0, 0.0)
+	_say_once("snuff", "Dark as the rest of them. Let them pass.")
+	main.tally("snuffs")
+
+
+## The lamp uncovered. After a moment in the dark it comes back as a flare:
+## everything near is dazzled, shades come apart, and spilled oil catches.
+func relight() -> void:
+	if not snuffed:
+		return
+	snuffed = false
+	_update_fov()
+	if snuff_t >= 0.5 and flare_cd <= 0.0:
+		_flare()
+	else:
+		Sfx.play("lamp", -10.0)
+
+
+func _flare() -> void:
+	flare_cd = 5.0
+	snuff_k = 0.0
+	nova_flash = 1.0
+	var o := pcenter()
+	var dazed := 0
+	for e in enemies:
+		if e.dead or (e.center() - o).length() > 78.0 or e.kind == "warden":
+			continue
+		if e.kind == "gloam":
+			e.dead = true
+			e.visible = false
+			_disintegrate(e)
+			continue
+		e.hurt(6.0, (e.center() - o).normalized() * 160.0, Color(1.0, 0.9, 0.6))
+		if not e.dead:
+			e.stun = maxf(e.stun, 1.4)
+			e.state = "rest" if e.state != "dormant" else e.state
+			e.st = 0.4
+			dazed += 1
+	surf.ignite_at(ppos, 55.0)
+	fx.ring(ppos, 6.0, 78.0, 0.3, Color(1.0, 0.85, 0.5), false, 5.0)
+	fx.spark(o, Color(1.0, 0.85, 0.5), 40, 200.0, 0.5, 2.5)
+	hud.flash_white(0.55)
+	add_shake(5.0)
+	slow_t = maxf(slow_t, 0.2)
+	Sfx.play("whoomp", 0.0)
+	Sfx.play("power", -6.0)
+	hud.float_text(ppos + Vector2(0, -28), "FLARE", Color(1.0, 0.85, 0.5))
+	if dazed > 0:
+		main.tally("flares")
+
+
+## X or the middle button: the flask, lobbed at the cursor. It costs oil, and
+## the pool it leaves burns at a touch of fire, under anyone.
+func throw_flask() -> void:
+	if dead or flask_cd > 0.0 or oil < FLASK_COST:
+		if oil < FLASK_COST and not dead and flask_cd <= 0.0:
+			flask_cd = 0.4
+			hud.float_text(ppos + Vector2(0, -26), "NO OIL", Color(0.8, 0.6, 0.4))
+		return
+	oil -= FLASK_COST
+	flask_cd = 0.6
+	var o := pcenter()
+	var want: Vector2
+	if pad == null and not bot:
+		want = mouse_world()
+	else:
+		var best = null
+		var bd := 150.0
+		for e in enemies:
+			if not e.dead and e.visible and (e.position - ppos).length() < bd:
+				bd = (e.position - ppos).length()
+				best = e
+		want = best.position if best != null else ppos + aim * 70.0
+	var v := (want - o).limit_length(120.0)
+	# Stop short of the first wall in the way.
+	var to := o
+	var steps := int(v.length() / 4.0)
+	for i in steps:
+		var nx := o + v * float(i + 1) / maxf(steps, 1)
+		if solid_at(nx):
+			break
+		to = nx
+	pose = "point"
+	pose_t = 0.2
+	Sfx.play("dash", -10.0, 0.2)
+	surf.throw_flask(o, to + Vector2(0, 7))
+	_say_once("flask", "Oil burns. Mind where it pools.")
+
+
+func _record_echo(frame: String) -> void:
+	if dead:
+		return
+	echo_track.append({"t": echo_clock, "p": ppos, "f": frame, "fl": pspr.flip_h,
+		"sr": staff.rotation, "sp": staff.position, "so": staff.offset})
+	while echo_track.size() > 2 and echo_track[0]["t"] < echo_clock - 2.0:
+		echo_track.pop_front()
+	while not echo_blows.is_empty() and echo_blows[0]["t"] < echo_clock - 2.0:
+		echo_blows.pop_front()
+
+
+## Dashing leaves the last two seconds behind to happen again: but only if
+## there was a fight in them, and not more often than the echo can recover.
+func _spawn_echo() -> void:
+	if echo_cd > 0.0 or echo_blows.is_empty() or echo_track.size() < 4:
+		return
+	echo_cd = stats["echo_cd"]
+	var e = EchoS.new()
+	e.setup(self, echo_track.duplicate(), echo_blows.duplicate(), stats["echo"])
+	ents.add_child(e)
+	echo_blows.clear()
+	_say_once("echo", "That was me. A moment ago.")
+	main.tally("echoes")
+
+
+# --- The nemesis ------------------------------------------------------------------
+
+## The named foe waits on the floor after it last put Wren out, and now and
+## then on others: in a room well away from the start, never the stair room.
+func _place_nemesis() -> void:
+	var n: Dictionary = main.profile["nemesis"]
+	if n.is_empty() or depth <= 0 or depth >= Story.DEPTHS.size():
+		return
+	if not main.nem_due and rng.randf() > 0.35:
+		return
+	var start: Vector2i = dungeon["start"]
+	var pool: Array = []
+	for sd in dungeon["spawns"]:
+		var t: Vector2i = sd["tile"]
+		if sd["room"] != exit_room and absi(t.x - start.x) + absi(t.y - start.y) > 14:
+			pool.append(sd)
+	if pool.is_empty():
+		return
+	var sd: Dictionary = pool[rng.randi() % pool.size()]
+	var e = spawn_enemy(n["kind"], tile_center(sd["tile"]), sd["room"])
+	e.make_nemesis(n)
+	main.nem_due = false
+
+
+func nemesis_woke(e) -> void:
+	var line: String = Nemesis.TAUNTS[rng.randi() % Nemesis.TAUNTS.size()]
+	hud.say_now("%s:  %s" % [Nemesis.full_name(e.nem, true), line], 5.0, Color(1.0, 0.45, 0.35))
+	hud.float_text(e.position + Vector2(0, -e.cy * 2.0 - 12.0), "IT REMEMBERS YOU", Color(1.0, 0.4, 0.3))
+	Sfx.play("roar", -4.0)
+	slow_t = maxf(slow_t, 0.5)
+	kick(0.08)
+	add_shake(4.0)
+
+
+func _nemesis_fell(e) -> void:
+	var rank := int(e.nem["rank"])
+	var pay := 40 + 30 * rank
+	main.bank(pay)
+	main.tally("nemeses")
+	main.profile["nemesis"] = {}
+	main.profile_dirty = true
+	hud.say_now("Wren: \"%s\"   (+%d embers)" % [Nemesis.SLAIN[rng.randi() % Nemesis.SLAIN.size()], pay], 5.0, hud.C_EMBER)
+	hud.float_text(e.position + Vector2(0, -e.cy * 2.0 - 12.0), "GRUDGE SETTLED", Color(1.0, 0.85, 0.4))
+	hud.flash_white(0.7)
+	slow_t = maxf(slow_t, 0.7)
+	hitstop = 0.15
+	Sfx.play("chime", -2.0)
+	drop("heart", e.position)
+	drop("heart", e.position + Vector2(6, 0))
+	fx.spark(e.center(), Color(0.3, 0.7, 0.75), 20, 120.0, 0.8, 2.0, 60.0)
+
+
 ## A springy squash that overshoots and settles: 1 at the start, wobbling to 0.
 static func squash_k(t: float) -> float:
 	return exp(-t * 11.0) * cos(t * 30.0)
@@ -1139,6 +1377,7 @@ func try_dash() -> void:
 	squash(0.32)
 	Sfx.play("dash", -5.0)
 	fx.spark(pcenter(), Color(0.5, 0.9, 1.0), 8, 50.0, 0.3, 2.0)
+	_spawn_echo()
 
 
 func do_slash() -> void:
@@ -1167,6 +1406,7 @@ func do_slash() -> void:
 	var sure := riposte_t > 0.0
 	riposte_t = 0.0
 	squash(0.16 if heavy else 0.09)
+	echo_blows.append({"t": echo_clock, "k": "slash", "a": aim, "heavy": heavy})
 	for e in enemies:
 		if e.dead:
 			continue
@@ -1176,7 +1416,12 @@ func do_slash() -> void:
 			if _parry(e):
 				hit += 1
 				continue
-			var crit: bool = rng.randf() < stats["crit"] or sure
+			# Out of the dark, on a foe that has lost her: it never sees it coming.
+			var unseen: bool = snuffed and (not e.awake or e.lost) and e.kind != "warden"
+			if unseen:
+				hud.float_text(e.position + Vector2(0, -e.cy * 2.0 - 12.0), "UNSEEN", Color(0.7, 0.8, 1.0))
+				main.tally("ambushes")
+			var crit: bool = rng.randf() < stats["crit"] or sure or unseen
 			if crit:
 				e.hurt(dmg * 2.0, aim * 170.0, Color(1.0, 0.55, 0.15))
 				fx.spark(e.center(), Color(1.0, 0.8, 0.3), 10, 110.0, 0.35, 2.0)
@@ -1222,6 +1467,10 @@ func do_slash() -> void:
 
 
 func do_bolt() -> void:
+	# An ember bolt is the lamp's own fire: casting one relights it.
+	if snuffed:
+		relight()
+	echo_blows.append({"t": echo_clock, "k": "bolt", "a": aim, "heavy": false})
 	oil -= bolt_cost()
 	bolt_cd = 0.38
 	bolt_buf = 0.0
@@ -1268,8 +1517,11 @@ func hurt_player(amount: int, from: Vector2, kb: float = 170.0, src = null) -> b
 		return true
 	if src is String:
 		last_cause = src
+		if src == "fire":
+			last_by_nem = false
 	elif src != null and is_instance_valid(src):
 		last_cause = src.kind
+		last_by_nem = src.nemesis
 	# No single blow takes Wren from more than one heart straight to nothing.
 	var spared: bool = amount >= hp and hp > 2
 	hp -= amount
@@ -1307,6 +1559,7 @@ func hurt_player(amount: int, from: Vector2, kb: float = 170.0, src = null) -> b
 	if hp <= 0:
 		hp = 0
 		dead = true
+		snuffed = false
 		death_t = 1.6
 		Sfx.play("death", 0.0, 0.0)
 		Sfx.play_music("")
@@ -1320,6 +1573,7 @@ func hurt_player(amount: int, from: Vector2, kb: float = 170.0, src = null) -> b
 
 ## Sweeps loot and stains off the floor (the showcase resets between scenes).
 func tidy() -> void:
+	surf.clear()
 	for p in pickups:
 		p["node"].queue_free()
 	pickups.clear()
@@ -1402,6 +1656,8 @@ func enemy_died(e) -> void:
 			c.st = 0.3 + 0.2 * k
 	if e.kind == "warden":
 		_boss_fell(e)
+	if e.nemesis:
+		_nemesis_fell(e)
 	_update_seal(false)
 
 
@@ -1532,6 +1788,17 @@ func _update_gloam(dt: float) -> void:
 	for e in enemies:
 		if e.kind == "gloam" and not e.dead:
 			shades.append(e)
+	# Snuffed by choice, the dark comes for her whatever the flask holds;
+	# a few seconds' grace first, then faster the longer she hides.
+	if snuffed:
+		if snuff_t < 3.0:
+			return
+		gloam_t -= dt * (1.0 + minf(snuff_t / 8.0, 1.5))
+		if gloam_t > 0.0 or shades.size() >= 3:
+			return
+		gloam_t = rng.randf_range(2.5, 4.0)
+		_spawn_gloam()
+		return
 	if k > GLOAM_SAFE:
 		# With the lamp bright again, the shades come apart where they stand.
 		for e in shades:
@@ -1546,6 +1813,10 @@ func _update_gloam(dt: float) -> void:
 	if gloam_t > 0.0 or shades.size() >= 3:
 		return
 	gloam_t = rng.randf_range(2.5, 4.0)
+	_spawn_gloam()
+
+
+func _spawn_gloam() -> void:
 	# Somewhere out past the light, on a tile that can reach her; in a cramped
 	# spot with nowhere that far, somewhere closer will do.
 	var far: Array = []
@@ -1633,6 +1904,9 @@ func _update_shots(dt: float) -> void:
 		var pos: Vector2 = s["pos"]
 		var gone: bool = s["life"] <= 0.0 or solid_at(pos)
 		if not gone and s["friendly"]:
+			# Ember fire: a bolt that crosses oil or web sets it alight.
+			surf.ignite_at(pos, 3.0)
+		if not gone and s["friendly"]:
 			for e in enemies:
 				if e.dead or s["hit"].has(e):
 					continue
@@ -1656,6 +1930,7 @@ func _update_shots(dt: float) -> void:
 				if p["type"] == "urn" and not p["done"] and (p["pos"] - pos).length() < 8.0:
 					_break_urn(p)
 		elif not gone and (pcenter() - pos).length() < 5.0:
+			last_by_nem = s.get("nem", false)
 			if hurt_player(s["dmg"], pos - s["vel"] * 0.1, 130.0, s.get("src", "")):
 				gone = true
 		s["node"].position = pos
@@ -1810,6 +2085,9 @@ func apply_boon(id: String) -> void:
 			stats["cdr"] *= 0.82
 		"wildfire", "starfall", "flashstep", "chainburst", "riposte":
 			stats[id] = 1.0
+		"echo":
+			stats["echo"] += 0.35
+			stats["echo_cd"] *= 0.6
 		"conflux":
 			stats["orbit"] += 2
 			stats["mote_k"] = 1.5
@@ -2177,6 +2455,7 @@ func _nova_burst(radius: float, dmg: float) -> void:
 	fx.ring(ppos, 4.0, radius * 0.8, 0.4, Color(1.0, 0.45, 0.1, 0.5), false, 3.0)
 	fx.spark(o, Color(1.0, 0.7, 0.25), 50, 220.0, 0.55, 2.5)
 	scorch(ppos, 14.0)
+	surf.ignite_at(ppos, radius * 0.7)
 	add_shake(7.0)
 	kick(-0.08)
 	hitstop = maxf(hitstop, 0.06)
@@ -2316,6 +2595,7 @@ func _update_powers(dt: float) -> void:
 		if rng.randf() < dt * 9.0:
 			fx.flame(fp + Vector2(rng.randf_range(-3.0, 3.0), 0.0))
 		if burn_tick:
+			surf.ignite_at(fp, 4.0)
 			for e in enemies:
 				if not e.dead and (e.position - fp).length() < 11.0 and e.orbit_cd <= 0.0:
 					e.orbit_cd = 0.25

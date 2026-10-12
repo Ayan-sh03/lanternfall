@@ -67,6 +67,8 @@ func _layout() -> void:
 		if game.powers[id]:
 			btns.append({"id": id, "c": s + spots[n], "r": 36.0})
 			n += 1
+	btns.append({"id": "flask", "c": s + Vector2(-268, 58), "r": 34.0})
+	btns.append({"id": "snuff", "c": s + Vector2(-300, -148), "r": 34.0})
 	if game.near_prop != null:
 		btns.append({"id": "use", "c": s + Vector2(-262, -52), "r": 40.0})
 	btns.append({"id": "pause", "c": Vector2(size.x * 0.5 + 250.0, 30.0), "r": 22.0})
@@ -137,6 +139,10 @@ func _press(idx: int, p: Vector2) -> void:
 			game.cast_spark()
 		"ward":
 			game.cast_ward()
+		"flask":
+			game.throw_flask()
+		"snuff":
+			game.toggle_snuff()
 		"use":
 			game.interact()
 		"pause":
@@ -237,6 +243,8 @@ func _draw() -> void:
 		match id:
 			"bolt":
 				can_pay = game.oil >= 18.0
+			"flask":
+				can_pay = game.oil >= game.FLASK_COST
 			"dash":
 				if game.dash_stock <= 0:
 					cdk = clampf(game.dash_cd / game.stats["dash_cd"], 0.0, 1.0)

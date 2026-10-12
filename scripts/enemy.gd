@@ -62,6 +62,17 @@ var walk_fps := 6.0
 var sq_amp := 0.0
 var sq_t := 9.0
 var base_scale := Vector2.ZERO
+## The foe that put Wren out and was named for it (see nemesis.gd).
+var nemesis := false
+var nem: Dictionary = {}
+var trophy: Sprite2D
+## With Wren's lamp snuffed, a foe that cannot see her goes to where it last
+## did and casts about there.
+var lost := false
+var seen_at := Vector2.ZERO
+var step_t := 0.0
+
+static var trophy_tex: ImageTexture
 
 
 func setup(game, k: String, pos: Vector2, r: int) -> void:
@@ -199,6 +210,45 @@ func make_elite() -> void:
 	add_child(aura)
 
 
+## Made into the named foe that put Wren out: tougher for every time it has,
+## wearing a scrap of her cloak.
+func make_nemesis(n: Dictionary) -> void:
+	nemesis = true
+	nem = n
+	var rank := int(n["rank"])
+	hp *= 2.2 + 0.6 * rank
+	max_hp = hp
+	xp *= 4
+	speed *= 1.06 + 0.03 * rank
+	spr.scale *= 1.2
+	cy *= 1.2
+	hit_r *= 1.15
+	weight *= 1.5
+	base_mod = Color(1.0, 0.86, 0.84)
+	var aura := Sprite2D.new()
+	aura.texture = Art.tex["glow"]
+	aura.material = Art.mat_add
+	aura.modulate = Color(1.0, 0.25, 0.15, 0.4)
+	aura.scale = Vector2(0.8, 0.8)
+	aura.position = Vector2(0, -cy)
+	aura.z_index = -1
+	add_child(aura)
+	if trophy_tex == null:
+		# A ragged scrap of Wren's teal cloak, tied on like a pennant.
+		var img := Image.create(5, 8, false, Image.FORMAT_RGBA8)
+		var rows := ["#####", "#####", "####.", "#####", "###..", "####.", "##...", "#.#.."]
+		for y in rows.size():
+			for x in 5:
+				if rows[y][x] == "#":
+					var c := Color(0.22, 0.58, 0.62) if (x + y) % 3 != 0 else Color(0.15, 0.42, 0.47)
+					img.set_pixel(x, y, c if x > 0 else Color(0.5, 0.4, 0.3))
+		trophy_tex = ImageTexture.create_from_image(img)
+	trophy = Sprite2D.new()
+	trophy.texture = trophy_tex
+	trophy.position = Vector2(-4.0, -cy * 1.45)
+	add_child(trophy)
+
+
 func center() -> Vector2:
 	return position + Vector2(0, -cy)
 
@@ -208,10 +258,15 @@ func wake() -> void:
 		return
 	awake = true
 	g.on_wake(self)
+	if nemesis:
+		g.nemesis_woke(self)
 	g.hud.float_text(position + Vector2(0, -cy * 2.0 - 4.0), "!", Color(1.0, 0.3, 0.25))
 	for o in g.enemies:
 		if o.room == room and not o.awake and o.kind != "warden":
-			o.awake = true
+			if o.nemesis:
+				o.wake()
+			else:
+				o.awake = true
 
 
 func rouse() -> void:
@@ -233,6 +288,8 @@ func hurt(amount: float, kb: Vector2, col: Color = Color(1.0, 0.92, 0.65)) -> vo
 	sq_t = 0.0
 	if not awake:
 		wake()
+	lost = false
+	seen_at = g.ppos
 	g.hud.float_text(position + Vector2(randf_range(-4.0, 4.0), -cy * 2.0 - 2.0), str(maxi(1, roundi(amount))), col)
 	g.fx.spark(center(), tint, 5, 70.0, 0.3)
 	if hp <= 0.0:
@@ -256,15 +313,26 @@ func tick(dt: float) -> void:
 	visible = g.vis_at(position)
 	var to_p: Vector2 = g.ppos - position
 	var dist := to_p.length()
+	# A snuffed lamp hides Wren from all but the shades and Maren.
+	var hide: bool = g.snuffed and kind != "warden" and kind != "gloam"
 	if not awake:
-		if state != "dormant" and dist < 125.0 and visible and g.los(position, g.ppos):
+		if state != "dormant" and dist < (34.0 if hide else 125.0) and (visible or hide) and g.los(position, g.ppos):
 			wake()
 		_animate()
 		return
 	think -= dt
 	if think <= 0.0:
 		think = 0.16 + 0.01 * seed_f
-		has_los = dist < 240.0 and g.los(position, g.ppos)
+		has_los = dist < (46.0 if hide else 240.0) and g.los(position, g.ppos)
+		if has_los:
+			seen_at = g.ppos
+			lost = false
+		elif hide and not lost:
+			lost = true
+			if dist < 200.0:
+				g.hud.float_text(position + Vector2(0, -cy * 2.0 - 4.0), "?", Color(0.75, 0.75, 0.9))
+	if not hide:
+		lost = false
 	knock = knock.move_toward(Vector2.ZERO, 520.0 * dt)
 	vel = Vector2.ZERO
 	orbit_cd -= dt
@@ -318,11 +386,23 @@ func tick(dt: float) -> void:
 	blocked = vel.length() > 60.0 and (position - before).length() < step.length() * 0.4
 	_separate(dt)
 	_animate()
+	# In the dark Wren cannot see them, but she can hear them coming.
+	if hide and not visible and vel.length() > 5.0 and dist < 150.0:
+		step_t -= dt
+		if step_t <= 0.0:
+			step_t = 0.26 if kind == "moth" else 0.42
+			Sfx.play("step", -6.0 - dist / 150.0 * 14.0, 0.3)
 
 
 func _seek() -> Vector2:
 	if has_los:
 		return (g.ppos - position).normalized()
+	if lost:
+		var to := seen_at - position
+		if to.length() < 8.0:
+			# Casting about where she was last seen.
+			return Vector2.from_angle(anim * 0.8 + seed_f) * 0.3
+		return to.normalized()
 	return g.flow_dir(position)
 
 
@@ -336,6 +416,7 @@ func _touch(dist: float, reach: float, amount: int = -1, kb: float = 170.0) -> v
 func _shoot(d: Vector2, spd: float) -> void:
 	g.add_shot(center(), d * spd, false, 1, Color(1.0, 0.3, 0.75))
 	g.shots[g.shots.size() - 1]["src"] = kind
+	g.shots[g.shots.size() - 1]["nem"] = nemesis
 
 
 func _separate(dt: float) -> void:
@@ -376,6 +457,10 @@ func _animate() -> void:
 	spr.modulate = base_mod
 	if awake and state != "charge" and state != "lunge" and stun <= 0.0:
 		spr.flip_h = g.ppos.x < position.x
+	if trophy != null:
+		trophy.rotation = sin(anim * 7.0 + seed_f) * 0.25
+		trophy.position.x = 4.0 if spr.flip_h else -4.0
+		trophy.flip_h = spr.flip_h
 	if emi != null:
 		emi.texture = Art.tex[fid + "_e"]
 		emi.flip_h = spr.flip_h
@@ -570,6 +655,7 @@ func _ai_wisp(dt: float, dist: float) -> void:
 				g.fx.spark(center(), Color(1.0, 0.6, 0.15), 40, 150.0, 0.6, 2.5)
 				g.fx.ring(position, 6.0, 38.0, 0.3, Color(1.0, 0.7, 0.3), false, 3.0)
 				g.scorch(position, 12.0)
+				g.surf.ignite_at(position, 30.0)
 				g.add_shake(6.0)
 				Sfx.play("boom", -2.0)
 				if dist < 36.0:

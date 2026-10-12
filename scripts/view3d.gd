@@ -164,6 +164,22 @@ void fragment() {
 }
 "
 
+## Oil, water and webs on the floor: lit like the floor, and hidden under the
+## fog of war like it.
+const SURF := "shader_type spatial;
+render_mode cull_disabled, specular_disabled, diffuse_lambert, depth_draw_never;
+" + GLOBALS + "
+varying vec3 wpos;
+void vertex() {
+	wpos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
+}
+void fragment() {
+	float f = texture(lf_fog, wpos.xz / lf_size).a;
+	ALBEDO = COLOR.rgb;
+	ALPHA = COLOR.a * (1.0 - f);
+}
+"
+
 ## Bloom: the bright parts of the finished picture, blurred by reading ever
 ## smaller copies of the screen, laid back over it. Only light that is already
 ## bright spills, so embers, eyes and the lantern glow and the rest stays crisp.
@@ -206,6 +222,9 @@ var fx_inst: MeshInstance3D
 var decal_mesh := ImmediateMesh.new()
 var decal_inst: MeshInstance3D
 var decal_n := -1
+var surf_mesh := ImmediateMesh.new()
+var surf_inst: MeshInstance3D
+var surf_v := -1
 var seen := {}
 var order := 0
 var shadow_on := false
@@ -261,6 +280,11 @@ func _ready() -> void:
 	decal_inst.material_override = _mat("fx_mix", FX_MIX)
 	decal_inst.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(decal_inst)
+	surf_inst = MeshInstance3D.new()
+	surf_inst.mesh = surf_mesh
+	surf_inst.material_override = _mat("surf", SURF)
+	surf_inst.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(surf_inst)
 	shadow_on = not OS.has_feature("mobile") and not game.main.profile["fast"]
 	# Between the game (layer 0) and the HUD (layer 10), so text never blooms.
 	bloom = CanvasLayer.new()
@@ -357,6 +381,8 @@ func _process(_dt: float) -> void:
 	_draw_fx()
 	if game.decals.size() != decal_n:
 		_draw_decals()
+	if game.surf.version != surf_v:
+		_draw_surfaces()
 
 
 func _sweep(pool: Dictionary) -> void:
@@ -934,6 +960,16 @@ func _draw_fx() -> void:
 			_ring(m, p, maxf(0.0, rad - wdt * 0.5), rad + wdt * 0.5, Color(c.r, c.g, c.b, c.a * (1.0 - k * k)))
 		any = true
 
+	# Burning oil and webs: a glow on the floor under the flames.
+	for sf in game.surf.list:
+		if sf["k"] != "fire" or not game.vis_at(sf["p"]):
+			continue
+		var fk := clampf(sf["t"], 0.0, 1.0) * (0.8 + 0.2 * sin(game.anim_t * 17.0 + sf["seed"]))
+		for b in game.SurfS.blobs(sf):
+			_ring(m, b[0], 0.0, b[1], Color(1.0, 0.42, 0.1, 0.5 * fk), 16)
+			_ring(m, b[0], 0.0, b[1] * 0.55, Color(1.0, 0.7, 0.3, 0.35 * fk), 12)
+		any = true
+
 	if any:
 		m.surface_end()
 	else:
@@ -951,3 +987,53 @@ func _draw_decals() -> void:
 	for d in game.decals:
 		_ring(decal_mesh, d["p"], 0.0, d["r"], d["c"], 16)
 	decal_mesh.surface_end()
+
+
+## The floor's oil, water and webs, rebuilt only when they change. Fire is
+## drawn with the other glowing effects, every frame.
+func _draw_surfaces() -> void:
+	surf_v = game.surf.version
+	surf_mesh.clear_surfaces()
+	var list: Array = game.surf.list
+	if list.is_empty():
+		return
+	var SurfS = game.SurfS
+	surf_mesh.surface_begin(Mesh.PRIMITIVE_TRIANGLES)
+	surf_mesh.surface_set_normal(Vector3.UP)
+	var n := 0
+	for s in list:
+		var h := 0.02 + n * 0.0005
+		n += 1
+		match s["k"]:
+			"water", "oil", "fire":
+				var col: Color = SurfS.WATER_COL if s["k"] == "water" else (SurfS.OIL_COL if s["k"] == "oil" else Color(0.06, 0.02, 0.0, 0.55))
+				for b in SurfS.blobs(s):
+					_disc(surf_mesh, b[0], b[1], col, h)
+			"web":
+				for l in SurfS.web_lines(s):
+					_strand(surf_mesh, l[0], l[1], 0.7, SurfS.WEB_COL, h)
+	surf_mesh.surface_end()
+
+
+func _disc(m: ImmediateMesh, p: Vector2, r: float, col: Color, h: float) -> void:
+	var c := to3(p) + Vector3(0, h, 0)
+	var segs := 14
+	for i in segs:
+		var a0 := TAU * i / segs
+		var a1 := TAU * (i + 1) / segs
+		m.surface_set_color(col)
+		m.surface_add_vertex(c)
+		m.surface_add_vertex(c + Vector3(cos(a0), 0, sin(a0)) * r / TS)
+		m.surface_add_vertex(c + Vector3(cos(a1), 0, sin(a1)) * r / TS)
+
+
+func _strand(m: ImmediateMesh, a: Vector2, b: Vector2, w: float, col: Color, h: float) -> void:
+	var d := (b - a).normalized().orthogonal() * w * 0.5
+	var y := Vector3(0, h, 0)
+	var p0 := to3(a + d) + y
+	var p1 := to3(b + d) + y
+	var p2 := to3(b - d) + y
+	var p3 := to3(a - d) + y
+	for v in [p0, p1, p2, p0, p2, p3]:
+		m.surface_set_color(col)
+		m.surface_add_vertex(v)

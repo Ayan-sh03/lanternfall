@@ -114,6 +114,9 @@ Invoke-Godot @("--", "--autotest", "--mechanics", "--3d") "Check the mechanics i
 # town's lamps and the kindlings that combine.
 Invoke-Godot @("--", "--autotest", "--progress", "--2d") "Check deaths, embers, the town and deeds (flat view)"
 Invoke-Godot @("--", "--autotest", "--progress", "--3d") "Check deaths, embers, the town and deeds (3D view)"
+# Oil and fire, the snuffed lamp, Wren's echo and the nemesis.
+Invoke-Godot @("--", "--autotest", "--wild", "--2d") "Check oil, fire, the snuffed lamp, the echo and the nemesis (flat view)"
+Invoke-Godot @("--", "--autotest", "--wild", "--3d") "Check oil, fire, the snuffed lamp, the echo and the nemesis (3D view)"
 Invoke-Godot @("--export-release", "Windows Desktop", "build/Lanternfall.exe") "Export the Windows build"
 Invoke-Godot @("--export-release", "Android", "build/Lanternfall.apk") "Export the Android build"
 Invoke-Godot @("--export-release", "Windows Desktop 3D", "build/Lanternfall-3D.exe") "Export the Windows 3D build"

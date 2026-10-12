@@ -16,7 +16,7 @@ Get the latest build from the [Releases page](https://github.com/Ayan-sh03/lante
 ## The game
 
 - Seven depths, from the Lamp Cellars down to the Heartforge, each generated fresh for every descent.
-- Six kinds of monster, elites that seal the stairs, and one Warden at the bottom.
+- Six kinds of monster, elites that seal the stairs, a nemesis of your own making, and one Warden at the bottom.
 - A three-hit staff combo, ember bolts that burn lamp oil, and a dash.
 - Parries: strike a foe as it lunges or charges and it staggers; strike a hex out of the air and it flies back at whoever cast it.
 - The lamp runs on the same oil as the bolts. The emptier the flask, the smaller the light, and below a fifth, shades called gloams come out of the dark until the lamp is bright again.
@@ -27,6 +27,10 @@ Get the latest build from the [Releases page](https://github.com/Ayan-sh03/lante
 - Deeds, paid in embers, and a record of your best descents. After a few falls the lamp's resolve can be accepted, an optional easing that turns aside a few blows more for each fall, and put down again any time.
 - Six kindlings that combine two you already hold into something new, such as Wildfire (burning foes set their neighbours alight) or Riposte (a parry makes the next strike land twice as hard).
 - Wren remembers what put her out, and says so when she wakes.
+- A nemesis: the first foe to put Wren out is given a name and keeps it. It wears a scrap of her cloak, waits for her on a later descent, taunts her when it sees her, and grows each time it puts her out again. Putting it out pays well and gives her the scrap back.
+- Oil, fire, webs and water on the floor. Throw the flask and the oil pools where it lands; any fire (an ember bolt, a burning foe, a bursting Cinder Skull) sets it alight, and the fire spreads into oil and webs it touches. It burns whoever stands in it, Wren too. Webs slow everyone, charging foes slip in oil, and water puts out whatever burns.
+- Snuff the lamp. Covered, it hides Wren: foes that cannot see her go to where they last did and cast about, she sees only their eyes and hears their steps, and a strike from the dark always lands twice as hard. Uncover it after a moment and it flares, dazzling everything near and lighting spilled oil. Hide too long and the gloams come, however full the flask.
+- Wren's echo: dash after a fight and the last two seconds of it play again where they happened, as a pale ghost of her whose blows land at half weight.
 - Writings and plaques that tell what happened to the keepers, and two endings.
 
 ## Controls
@@ -37,7 +41,9 @@ Get the latest build from the [Releases page](https://github.com/Ayan-sh03/lante
 | Aim | Mouse | Automatic; drag off STRIKE or BOLT to aim by hand |
 | Strike | Left click (third strike is heavy) | Hold STRIKE |
 | Ember bolt | Right click | Hold BOLT |
-| Dash | `Space` | DASH |
+| Dash (and leave an echo) | `Space` | DASH |
+| Throw oil | `X` or middle click | Flask stone |
+| Snuff or relight the lamp | `C` | Hooded lamp stone |
 | Relic powers | `Q` `R` `F` | Their stones, once found |
 | Interact | `E` | The stone that appears beside a chest, lamp or stair |
 | Pause | `Esc` | Pause stone, or the back gesture |

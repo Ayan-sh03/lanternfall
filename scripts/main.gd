@@ -8,6 +8,7 @@ const HudS = preload("res://scripts/hud.gd")
 const Story = preload("res://scripts/story.gd")
 const AutoS = preload("res://scripts/autotest.gd")
 const ShowS = preload("res://scripts/showcase.gd")
+const Nemesis = preload("res://scripts/nemesis.gd")
 
 const SLOTS := 3
 
@@ -22,12 +23,18 @@ var profile := {"max_depth": 1, "endings": [false, false], "sound": true, "hapti
 	# What every descent leaves behind: embers to spend in the town, the town's
 	# lit lamps, running tallies for the deeds, deeds done, the best runs, and
 	# whether the lamp's resolve (an optional easing) is accepted.
-	"embers": 0, "town": [], "tally": {}, "feats": [], "best": {}, "resolve": false}
+	"embers": 0, "town": [], "tally": {}, "feats": [], "best": {}, "resolve": false,
+	# The foe that put Wren out and earned a name for it (see nemesis.gd); empty if none.
+	"nemesis": {}}
 ## What last put Wren out, as an entry in Story.CAUSES (empty if nothing yet).
 var last_cause := ""
 ## Embers earned since the run (or the life) began, for the death screen.
 var run_embers := 0
 var profile_dirty := false
+## The nemesis waits on the next floor entered after it was made or fed.
+var nem_due := false
+## What the nemesis made of the last death, for the death screen.
+var nem_news := ""
 ## Test and recording runs switch this off so they never touch the player's progress.
 var persist := true
 ## True on phones and tablets (or with --touch, for trying the pad on a desktop).
@@ -224,6 +231,10 @@ func _load_profile() -> void:
 			if d is Dictionary:
 				for n in d:
 					profile[k][n] = int(d[n])
+		var nm = data.get("nemesis", {})
+		if nm is Dictionary and Nemesis.KINDS.has(str(nm.get("kind", ""))) and str(nm.get("name", "")) != "":
+			profile["nemesis"] = {"kind": str(nm["kind"]), "name": str(nm["name"]),
+				"rank": clampi(int(nm.get("rank", 1)), 1, Nemesis.RANK.size() - 1), "wins": int(nm.get("wins", 1))}
 
 
 func _save_profile() -> void:
@@ -419,6 +430,7 @@ func _drop_game() -> void:
 
 func player_died() -> void:
 	last_cause = game.last_cause
+	nem_news = Nemesis.on_death(self, game.last_cause, game.last_by_nem, game.rng)
 	tally("deaths")
 	record_run(game.depth, game.kills, game.run_time, false)
 	_save_profile()

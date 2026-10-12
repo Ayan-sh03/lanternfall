@@ -970,6 +970,13 @@ func run() -> void:
 	if OS.get_cmdline_user_args().has("--progress"):
 		progress_test()
 		return
+	if OS.get_cmdline_user_args().has("--wild"):
+		var wt = load("res://scripts/wildtest.gd").new()
+		wt.main = main
+		wt.at = self
+		add_child(wt)
+		wt.run()
+		return
 	if OS.get_cmdline_user_args().has("--showreel"):
 		var reel = load("res://scripts/showreel.gd").new()
 		reel.main = main

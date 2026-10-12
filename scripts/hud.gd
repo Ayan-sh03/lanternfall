@@ -163,14 +163,14 @@ func _ready() -> void:
 	_place(depth_lbl, 0.5, 0.0, Vector2(0, 14), Vector2(600, 26))
 	hud_group.add_child(depth_lbl)
 
-	hint_lbl = _lbl("WASD  move        Mouse  aim\nLeft click  strike  (third strike is heavy)\nRight click  ember bolt  (uses oil)\nSpace  dash        E  interact        Esc  pause\nQ / R / F  relic powers, once you find them", 20, C_PARCH, font, 5)
-	_place(hint_lbl, 0.0, 1.0, Vector2(24, -18), Vector2(420, 130))
+	hint_lbl = _lbl("WASD  move        Mouse  aim\nLeft click  strike  (third strike is heavy)\nRight click  ember bolt        X / middle click  throw oil\nSpace  dash  (your last blows echo)        C  snuff the lamp\nE  interact        Esc  pause        Q / R / F  relic powers", 20, C_PARCH, font, 5)
+	_place(hint_lbl, 0.0, 1.0, Vector2(24, -18), Vector2(520, 156))
 	hint_lbl.vertical_alignment = VERTICAL_ALIGNMENT_BOTTOM
 	if touch:
-		hint_lbl.text = "Left thumb  move\nHold STRIKE  fight  (third strike is heavy)\nHold BOLT  ember bolt  (uses oil)\nDrag off either stone to aim by hand"
+		hint_lbl.text = "Left thumb  move\nHold STRIKE  fight  (third strike is heavy)\nHold BOLT  ember bolt  (uses oil)\nDrag off either stone to aim by hand\nFlask throws oil; the hooded lamp snuffs yours"
 		hint_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		hint_lbl.vertical_alignment = VERTICAL_ALIGNMENT_TOP
-		_place(hint_lbl, 0.5, 0.0, Vector2(0, 46), Vector2(560, 110))
+		_place(hint_lbl, 0.5, 0.0, Vector2(0, 46), Vector2(560, 136))
 	hud_group.add_child(hint_lbl)
 
 	prompt_lbl = _lbl("", 20, C_PARCH, font_b, 6)
@@ -518,6 +518,12 @@ func caption(a: String, b: String = "") -> void:
 
 func say(text: String, dur: float = 4.5, col: Color = C_TEAL) -> void:
 	say_q.append([text, dur, col])
+
+
+## A line that cannot wait its turn: whatever is showing fades out at once.
+func say_now(text: String, dur: float = 4.5, col: Color = C_TEAL) -> void:
+	say_q.push_front([text, dur, col])
+	sub_t = minf(sub_t, 0.2)
 
 
 func float_text(wpos: Vector2, text: String, col: Color) -> void:
@@ -1094,7 +1100,10 @@ func show_death() -> void:
 		col.add_child(_wrapped(cause["tip"], 19, C_TEAL, 640.0, font_i))
 		row.add_child(col)
 		vb.add_child(row)
-	vb.add_child(_wrapped(Story.DEATH_LINES[randi() % Story.DEATH_LINES.size()], 20, C_DIM, 900.0, font_i))
+	if main.nem_news != "":
+		vb.add_child(_wrapped(main.nem_news, 22, Color(1.0, 0.45, 0.35), 900.0, font_b))
+	else:
+		vb.add_child(_wrapped(Story.DEATH_LINES[randi() % Story.DEATH_LINES.size()], 20, C_DIM, 900.0, font_i))
 	vb.add_child(_wrapped(_stats_text(), 18, C_DIM, 900.0))
 	# Nothing earned is lost: say so.
 	var got: int = main.run_embers
@@ -1560,6 +1569,17 @@ func _draw_icon(c: Control, id: String, o: Vector2, on: bool) -> void:
 			c.draw_polyline(PackedVector2Array([o + Vector2(6, -22), o + Vector2(-8, -2), o + Vector2(3, -2), o + Vector2(-7, 22)]), blue, 4.0)
 			c.draw_polyline(PackedVector2Array([o + Vector2(14, -10), o + Vector2(8, 2), o + Vector2(15, 2), o + Vector2(9, 14)]),
 				Color(blue.r, blue.g, blue.b, 0.6), 2.0)
+		"snuff":
+			# A lamp with a hood over it; open when the lamp is covered.
+			var lit: bool = game != null and not game.snuffed
+			c.draw_rect(Rect2(o + Vector2(-9, -8), Vector2(18, 20)), Color(col.r, col.g, col.b, 0.35), false, 2.5)
+			c.draw_circle(o + Vector2(0, 2), 5.0, Color(1, 0.85, 0.5) if lit else Color(0.25, 0.25, 0.32))
+			c.draw_line(o + Vector2(-15, -12), o + Vector2(15, -12), col, 4.0)
+			c.draw_line(o + Vector2(0, -18), o + Vector2(0, -12), col, 3.0)
+		"flask":
+			c.draw_circle(o + Vector2(0, 5), 11.0, col)
+			c.draw_rect(Rect2(o + Vector2(-4, -15), Vector2(8, 10)), col)
+			c.draw_circle(o + Vector2(-3, 3), 3.0, Color(1, 1, 0.9, 0.7) if on else Color(0, 0, 0, 0.3))
 		"ward":
 			c.draw_arc(o, 19.0, 0.0, TAU, 28, col, 3.0)
 			c.draw_polyline(PackedVector2Array([o + Vector2(0, -11), o + Vector2(11, 0), o + Vector2(0, 11), o + Vector2(-11, 0),
@@ -1601,6 +1621,37 @@ func _draw_warnings(c: Control, vs: Vector2) -> void:
 			Color(col.r, col.g, col.b, col.a * 0.5))
 
 
+## Over the world: the nemesis's name above its head, and, with the lamp
+## snuffed, the eyes of whatever is moving out in the dark.
+func _draw_marks() -> void:
+	if game.dead or blocking():
+		return
+	for e in game.enemies:
+		if e.dead:
+			continue
+		var d: float = (e.position - game.ppos).length()
+		if e.nemesis and e.visible and d < 260.0:
+			var s: String = e.nem["name"]
+			var sp: Vector2 = game.screen_pos(e.position + Vector2(0, -e.cy * 2.0 - 6.0)) - hud_group.position
+			var w := font_b.get_string_size(s, HORIZONTAL_ALIGNMENT_LEFT, -1, 18).x
+			var at := sp - Vector2(w * 0.5, 0)
+			float_c.draw_string_outline(font_b, at, s, HORIZONTAL_ALIGNMENT_LEFT, -1, 18, 5, Color(0, 0, 0, 0.9))
+			float_c.draw_string(font_b, at, s, HORIZONTAL_ALIGNMENT_LEFT, -1, 18, Color(1.0, 0.45, 0.35))
+			var bw := 60.0
+			var hp_k: float = clampf(e.hp / e.max_hp, 0.0, 1.0)
+			float_c.draw_rect(Rect2(sp + Vector2(-bw * 0.5, 6), Vector2(bw, 5)), Color(0, 0, 0, 0.7))
+			float_c.draw_rect(Rect2(sp + Vector2(-bw * 0.5, 6), Vector2(bw * hp_k, 5)), Color(1.0, 0.35, 0.25))
+		if game.snuffed and not e.visible and d < 170.0 and (e.awake or d < 90.0) and e.kind != "slime" and e.kind != "slimelet":
+			var ep: Vector2 = game.screen_pos(e.center() + Vector2(0, -2)) - hud_group.position
+			var blink := 1.0 if fmod(t * 0.7 + e.seed_f, 3.0) > 0.12 else 0.0
+			var a := (1.0 - d / 170.0) * 0.9 * blink
+			var col := Color(1.0, 0.25, 0.2, a) if e.kind != "gloam" else Color(0.7, 0.45, 1.0, a)
+			var gap := 4.0 if e.kind != "brute" else 6.0
+			float_c.draw_circle(ep + Vector2(-gap, 0), 2.2, col)
+			float_c.draw_circle(ep + Vector2(gap, 0), 2.2, col)
+			float_c.draw_circle(ep, 9.0, Color(col.r, col.g, col.b, a * 0.12))
+
+
 ## A deed done: a line in ember, and the embers it pays.
 func deed(f: Dictionary) -> void:
 	var r := int(f["reward"])
@@ -1611,6 +1662,7 @@ func deed(f: Dictionary) -> void:
 func _draw_floats() -> void:
 	if game == null:
 		return
+	_draw_marks()
 	for f in floats:
 		var k: float = f["t"] / 0.8
 		var sp: Vector2 = game.screen_pos(f["w"]) - hud_group.position + Vector2(0, -36.0 * k)
