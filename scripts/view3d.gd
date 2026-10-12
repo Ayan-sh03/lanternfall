@@ -472,14 +472,55 @@ func _make_dust() -> void:
 	add_child(dust)
 
 
+## Each depth has its own air: the colour of the stone, of the haze and of
+## the torches, and what drifts in the light (dust, or on the Ashen Stair, ash).
+const MOODS := {
+	"cellar": {"tint": Color(1.0, 0.95, 0.9), "fog": Color(0.9, 0.8, 0.7), "dens": 0.03, "glow": Color(0, 0, 0),
+		"torch": Color(1.0, 0.58, 0.26), "amb": Color(0.32, 0.36, 0.55), "dust": Color(1.0, 0.85, 0.6), "fall": -0.015},
+	"choir": {"tint": Color(0.86, 0.82, 0.96), "fog": Color(0.78, 0.7, 0.95), "dens": 0.04, "glow": Color(0.02, 0.0, 0.03),
+		"torch": Color(1.0, 0.55, 0.62), "amb": Color(0.42, 0.32, 0.6), "dust": Color(0.9, 0.8, 1.0), "fall": -0.01},
+	"archive": {"tint": Color(0.8, 0.94, 1.0), "fog": Color(0.6, 0.82, 0.88), "dens": 0.05, "glow": Color(0.0, 0.015, 0.02),
+		"torch": Color(1.0, 0.68, 0.38), "amb": Color(0.25, 0.45, 0.55), "dust": Color(0.75, 0.95, 1.0), "fall": 0.02},
+	"roots": {"tint": Color(1.0, 0.86, 0.72), "fog": Color(1.0, 0.62, 0.38), "dens": 0.04, "glow": Color(0.03, 0.008, 0.0),
+		"torch": Color(1.0, 0.5, 0.2), "amb": Color(0.45, 0.3, 0.28), "dust": Color(1.0, 0.6, 0.3), "fall": 0.03},
+	"iron": {"tint": Color(0.84, 0.88, 0.94), "fog": Color(0.72, 0.76, 0.82), "dens": 0.035, "glow": Color(0, 0, 0),
+		"torch": Color(1.0, 0.75, 0.45), "amb": Color(0.34, 0.38, 0.48), "dust": Color(0.85, 0.9, 1.0), "fall": -0.01},
+	"ash": {"tint": Color(0.76, 0.73, 0.7), "fog": Color(0.62, 0.6, 0.58), "dens": 0.06, "glow": Color(0.01, 0.005, 0.0),
+		"torch": Color(1.0, 0.5, 0.25), "amb": Color(0.36, 0.34, 0.36), "dust": Color(0.8, 0.78, 0.76), "fall": -0.12},
+	"forge": {"tint": Color(1.0, 0.76, 0.62), "fog": Color(1.0, 0.45, 0.22), "dens": 0.05, "glow": Color(0.06, 0.015, 0.0),
+		"torch": Color(1.0, 0.42, 0.15), "amb": Color(0.5, 0.25, 0.2), "dust": Color(1.0, 0.55, 0.25), "fall": 0.05},
+}
+var torch_col := Color(1.0, 0.58, 0.26)
+
+
+func _mood(theme: String) -> void:
+	var m: Dictionary = MOODS.get(theme, MOODS["cellar"])
+	kit.set_tint(m["tint"])
+	torch_col = m["torch"]
+	var e: Environment = env.environment
+	if aaa:
+		e.volumetric_fog_albedo = m["fog"]
+		e.volumetric_fog_density = m["dens"] * 0.55
+		e.volumetric_fog_emission = m["glow"]
+		e.ambient_light_color = m["amb"]
+	if dust != null:
+		dust.gravity = Vector3(0, m["fall"], 0)
+		var g: Gradient = dust.color_ramp
+		var c: Color = m["dust"]
+		for i in g.get_point_count():
+			var a := g.get_color(i).a
+			g.set_color(i, Color(c.r, c.g, c.b, a))
+		dust.amount = 220 if theme == "ash" else 110
+
+
 ## The full look: filmic tonemapping, glow from anything bright, contact
 ## shadows and bounce light, and a haze in the air that the lamps light up.
 func _grade(e: Environment) -> void:
 	e.background_color = Color(0.004, 0.004, 0.01)
 	e.ambient_light_color = Color(0.32, 0.36, 0.55)
-	e.ambient_light_energy = 0.22
+	e.ambient_light_energy = 0.38
 	e.tonemap_mode = Environment.TONE_MAPPER_ACES
-	e.tonemap_exposure = 1.15
+	e.tonemap_exposure = 1.35
 	e.tonemap_white = 6.0
 	e.glow_enabled = true
 	e.glow_normalized = false
@@ -756,7 +797,12 @@ func _mirror_light(l: PointLight2D, ground: Vector2) -> void:
 	o.light_color = l.color
 	# Wren's lamp is right beside her, so it is held back a little or her own
 	# cloak would glare.
-	o.light_energy = l.energy * (1.05 if l == game.plight else 1.6)
+	if aaa:
+		# Filmic tonemapping and the haze both eat light: lamps burn hotter here.
+		o.light_energy = l.energy * (2.6 if l == game.plight else 2.4)
+		o.omni_attenuation = 0.85
+	else:
+		o.light_energy = l.energy * (1.05 if l == game.plight else 1.6)
 	o.omni_range = l.texture_scale * 64.0 / TS * 1.15
 	o.visible = l.enabled
 
@@ -831,6 +877,8 @@ func _build_map() -> void:
 	candle_fires.clear()
 	if kit_on:
 		kit.build()
+		var info0: Dictionary = Story.GALLERY if game.depth <= 0 else Story.DEPTHS[game.depth - 1]
+		_mood(game.gallery_theme if game.depth <= 0 and game.gallery_theme != "" else str(info0["theme"]))
 		for t in kit.torches:
 			_torch(t)
 		for c in kit.candles:
@@ -1430,7 +1478,7 @@ func _flicker() -> void:
 		tl["fire"].emitting = near
 		if near:
 			var s: float = tl["seed"]
-			l.light_energy = 1.35 + 0.18 * sin(t * 9.0 + s) + 0.1 * sin(t * 23.0 + s * 2.0)
+			l.light_energy = (2.5 if aaa else 1.35) + 0.2 * sin(t * 9.0 + s) + 0.12 * sin(t * 23.0 + s * 2.0)
 	for f in candle_fires:
 		f.emitting = f.position.distance_squared_to(pp) < 196.0
 
@@ -1442,10 +1490,10 @@ func wall_h() -> float:
 ## A torch on the wall: a flickering light, and real flames rising off it.
 func _torch(t: Dictionary) -> void:
 	var l := OmniLight3D.new()
-	l.light_color = Color(1.0, 0.58, 0.26)
-	l.light_energy = 1.4
-	l.omni_range = 4.6
-	l.omni_attenuation = 1.4
+	l.light_color = torch_col
+	l.light_energy = 2.6 if aaa else 1.4
+	l.omni_range = 5.6 if aaa else 4.6
+	l.omni_attenuation = 1.0 if aaa else 1.4
 	l.light_specular = 0.25
 	l.shadow_enabled = aaa
 	l.shadow_bias = 0.05

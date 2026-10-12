@@ -36,6 +36,7 @@ render_mode cull_back, specular_schlick_ggx;
 uniform sampler2D atlas : source_color, filter_linear_mipmap;
 uniform bool cut = false;
 uniform float rough = 0.85;
+uniform vec3 tint = vec3(1.0);
 global uniform sampler2D lf_fog : filter_linear;
 global uniform vec2 lf_size;
 global uniform vec3 lf_player;
@@ -67,7 +68,7 @@ void fragment() {
 		// Clean through the middle, a soft dither only at the edges.
 		if (k > 0.92 || bayer4(FRAGCOORD.xy) < k) discard;
 	}
-	ALBEDO = c * (1.0 - f);
+	ALBEDO = c * tint * (1.0 - f);
 	ROUGHNESS = rough;
 	SPECULAR = 0.3;
 }
@@ -104,6 +105,12 @@ var mat_wall: ShaderMaterial
 var torches: Array = []
 ## Where small flames burn on the decoration (candles), for the 3D view to light.
 var candles: Array = []
+
+
+func set_tint(t: Color) -> void:
+	for m in [mat_floor, mat_wall]:
+		if m != null:
+			m.set_shader_parameter("tint", Vector3(t.r, t.g, t.b))
 
 
 func _hash(x: int, y: int, salt: int = 0) -> int:

@@ -41,7 +41,39 @@ func _anim(v, e) -> String:
 	return a["ap"].current_animation
 
 
+## Each depth's look, one picture apiece:  --autotest --models --tour
+func tour() -> void:
+	main.slot = 9
+	main.use_3d = true
+	await w(0.5)
+	main.hud._close_modal()
+	main.new_game(1)
+	await w(2.0)
+	var g = main.game
+	g.bot = true
+	g.bot_manual = true
+	g.god = true
+	for d in range(1, 8):
+		g.load_floor(d)
+		await w(2.5)
+		g.hud.card_t = 0.0
+		g.hud.say_q.clear()
+		g.hud.sub_t = 0.0
+		# Stand somewhere with a torch or brazier in view, if the floor has one.
+		for p in g.props:
+			if p["type"] == "brazier":
+				g.teleport(p["pos"] + Vector2(0, 30))
+				break
+		await w(1.5)
+		await at.shot("tour_%d" % d)
+	print("MODEL PASS")
+	get_tree().quit(0)
+
+
 func run() -> void:
+	if OS.get_cmdline_user_args().has("--tour"):
+		await tour()
+		return
 	main.slot = 9
 	main.use_3d = true
 	await w(0.5)

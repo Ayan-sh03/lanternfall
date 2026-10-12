@@ -1104,6 +1104,11 @@ func _update_player(dt: float) -> void:
 		if step_t > 0.3:
 			step_t = 0.0
 			Sfx.play("step", -17.0, 0.2)
+			# A little dust kicked up at each step.
+			for k in 3:
+				fx.add_part(ppos + Vector2(rng.randf_range(-3, 3), 1), ppos.y + 2.0,
+					Vector2(rng.randf_range(-10, 10), rng.randf_range(-6, 2)), rng.randf_range(0.35, 0.6), 1.6,
+					Color(0.6, 0.52, 0.42, 0.35), 0.0)
 	atk_pose -= dt
 	var pframe := "player_idle%d" % (int(anim_t * 2.0) % 2)
 	if dash_t > 0.0:
@@ -2164,6 +2169,11 @@ func _update_shots(dt: float) -> void:
 		s["pos"] += s["vel"] * dt
 		s["life"] -= dt
 		var pos: Vector2 = s["pos"]
+		# A trail of embers (or of hex-light) behind each one in flight.
+		if rng.randf() < dt * 45.0:
+			var c: Color = s["col"]
+			fx.add_part(pos - s["vel"].normalized() * 3.0, pos.y + 7.0, -s["vel"] * 0.08 + Vector2(rng.randf_range(-8, 8), rng.randf_range(-8, 8)),
+				rng.randf_range(0.2, 0.4), rng.randf_range(1.0, 1.8), Color(c.r, c.g, c.b, 0.8))
 		var gone: bool = s["life"] <= 0.0 or solid_at(pos)
 		if gone and s["friendly"] and s["life"] > 0.0:
 			_strike_wall(pos, 2.0)
