@@ -110,6 +110,10 @@ Invoke-Godot @("--quit-after", "120") "Start the game and run it for 120 frames"
 # hexes and the lamp's oil do what they should; exits non-zero if not.
 Invoke-Godot @("--", "--autotest", "--mechanics", "--2d") "Check the mechanics in the flat view"
 Invoke-Godot @("--", "--autotest", "--mechanics", "--3d") "Check the mechanics in the 3D view"
+# The fair-death and progression rules: mercy, resolve, embers, deeds, the
+# town's lamps and the kindlings that combine.
+Invoke-Godot @("--", "--autotest", "--progress", "--2d") "Check deaths, embers, the town and deeds (flat view)"
+Invoke-Godot @("--", "--autotest", "--progress", "--3d") "Check deaths, embers, the town and deeds (3D view)"
 Invoke-Godot @("--export-release", "Windows Desktop", "build/Lanternfall.exe") "Export the Windows build"
 Invoke-Godot @("--export-release", "Android", "build/Lanternfall.apk") "Export the Android build"
 Invoke-Godot @("--export-release", "Windows Desktop 3D", "build/Lanternfall-3D.exe") "Export the Windows 3D build"

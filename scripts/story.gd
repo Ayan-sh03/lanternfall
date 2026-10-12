@@ -156,3 +156,113 @@ const BOONS := [
 ]
 
 const ROMAN := ["I", "II", "III", "IV", "V", "VI", "VII"]
+
+
+# --- Deaths ---------------------------------------------------------------------
+
+## What put Wren out, by the kind of foe: who it was, and how it does it.
+const CAUSES := {
+	"husk": {"who": "a Hollow Keeper", "how": "lunge", "icon": "husk_lunge",
+		"tip": "Keepers wind up before they lunge. Step aside, or strike as they come and the blow breaks on you."},
+	"gloam": {"who": "a gloam", "how": "lunge, out of the dark", "icon": "husk_lunge",
+		"tip": "Gloams only come when the lamp burns low. Save some oil, or rest at a lamp to fill it."},
+	"moth": {"who": "a Gloam Bat", "how": "bite", "icon": "moth0",
+		"tip": "Bats bite and wheel away. Swing as they come back in; a sweep catches them mid-turn."},
+	"cantor": {"who": "a Choir Cantor", "how": "hex", "icon": "cantor_cast",
+		"tip": "A struck hex flies back at whoever threw it. Swing at it as it reaches you."},
+	"slime": {"who": "an Ink Maw", "how": "hop", "icon": "slime0",
+		"tip": "Ink Maws split when they die. Back away from the pieces rather than through them."},
+	"slimelet": {"who": "a scrap of Ink Maw", "how": "hop", "icon": "slime0",
+		"tip": "The small ones are quick but frail. One sweep clears them."},
+	"brute": {"who": "a Bellringer", "how": "charge", "icon": "brute_wind",
+		"tip": "The bell tolls before the charge. Put a wall behind you and step aside; strike it as it comes to stop it dead."},
+	"wisp": {"who": "a Cinder Skull", "how": "burst", "icon": "wisp0",
+		"tip": "Cinder Skulls burst when they reach you. Kill them at range with a bolt, or dash clear."},
+	"warden": {"who": "Maren", "how": "glaive", "icon": "warden_strike",
+		"tip": "She signals every blow. Watch her hands, not her eyes."},
+}
+
+## What Wren says on waking at the lamp, by what put her out. Each line is said
+## the first time; after that a random one.
+const WREN_WAKE := {
+	"husk": ["Too close to a keeper. I know the wind-up now.", "They lean back before they lunge. I saw it too late."],
+	"gloam": ["I let the lamp burn down. That's on me.", "The dark has teeth when the oil's gone. Noted."],
+	"moth": ["Bats. Bats! Maren would laugh.", "Swing when they turn back. When they turn back."],
+	"cantor": ["Their hexes come back if I hit them. I'll hit them.", "I stood still for a choir. Never again."],
+	"slime": ["The ink splits. Back off when it bursts.", "Don't fight ink head-on. Noted."],
+	"slimelet": ["Little pieces, big trouble.", "Sweep the scraps, don't chase them."],
+	"brute": ["Bellringers again. I'll remember the bell this time.", "Wall at my back next time. Let it hit stone."],
+	"wisp": ["Kill the skulls first. Always the skulls first.", "Should have dashed. Should have dashed."],
+	"warden": ["Maren. I'm not done. Neither are you.", "She's slower after the third swing. I think."],
+}
+
+## Said on waking as the deaths mount, in place of the line above.
+const WREN_STUBBORN := {
+	3: "Third time. The lamp still catches. So do I.",
+	7: "Seven. Maren fell more than this. She said so.",
+	12: "Twelve. Every one of them taught me something.",
+	20: "Twenty. The dark isn't patient enough to outlast me.",
+}
+
+
+# --- Kindlings that combine ----------------------------------------------------
+
+## Offered once Wren holds both of their kindlings. Each is a new effect, not
+## just a bigger number.
+const DUOS := [
+	{"id": "wildfire", "needs": ["burn", "trail"], "name": "Wildfire",
+		"desc": "DUO: Afterburn + Cinder Trail\nBurning foes set alight the foes beside them."},
+	{"id": "starfall", "needs": ["twin", "pierce"], "name": "Starfall",
+		"desc": "DUO: Forked Flame + Lance of Light\nAn ember bolt that strikes a foe breaks into two more."},
+	{"id": "flashstep", "needs": ["blink", "sear"], "name": "Flashstep",
+		"desc": "DUO: Double Step + Searing Dash\nDashing through a foe gives the dash straight back."},
+	{"id": "chainburst", "needs": ["shatter", "burn"], "name": "Chain of Cinders",
+		"desc": "DUO: Cinderburst + Afterburn\nWhat a burst scorches, it also sets alight."},
+	{"id": "conflux", "needs": ["orbit", "focus"], "name": "Conflux",
+		"desc": "DUO: Ember Motes + Maren's Notes\nTwo more motes, and every mote burns half again as hot."},
+	{"id": "riposte", "needs": ["crit", "swift"], "name": "Riposte",
+		"desc": "DUO: Keen Eye + Lamplighter's Stride\nA parry makes your next strike land twice as hard."},
+]
+const DUO_COL := Color(0.85, 0.6, 1.0)
+
+
+# --- The town above ------------------------------------------------------------
+
+## Lamps in the town, lit with embers brought home. Each lights for good and
+## helps every descent after it.
+const TOWN := [
+	{"id": "tinker", "name": "The Tinker's Lamp", "cost": 40, "icon": "heart2",
+		"desc": "The tinker patches your coat.\nStart each descent with one more heart."},
+	{"id": "oil", "name": "The Oilmonger's Lamp", "cost": 40, "icon": "oil",
+		"desc": "A deeper flask, filled.\n+25 oil to start each descent."},
+	{"id": "smith", "name": "The Smith's Lamp", "cost": 60, "icon": "i_sword",
+		"desc": "The hook is ground keen.\n+10% strike damage."},
+	{"id": "chandler", "name": "The Chandler's Lamp", "cost": 60, "icon": "i_flame",
+		"desc": "Better oil, cleaner flame.\nEmber bolts cost 15 oil, not 18."},
+	{"id": "physician", "name": "The Physician's Lamp", "cost": 70, "icon": "heart2",
+		"desc": "Bandages in every pocket.\nThe fallen leave hearts more often."},
+	{"id": "watch", "name": "The Watch Lamp", "cost": 100, "icon": "i_lamp",
+		"desc": "The night watch lends a match.\nStart each descent with the spare match."},
+	{"id": "chapel", "name": "The Chapel Lamp", "cost": 120, "icon": "page",
+		"desc": "The chapel keeps Maren's notes.\nChoose from four kindlings, not three."},
+	{"id": "belltower", "name": "The Bell Tower Lamp", "cost": 90, "icon": "i_eye",
+		"desc": "The bell rings true.\nOnce per depth, ask for a fresh choice of kindlings."},
+	{"id": "maren", "name": "Maren's Lamp", "cost": 200, "icon": "lamp1",
+		"desc": "Her window, lit again.\nThe wayside lamps heal you fully and refill your oil."},
+]
+
+
+# --- Deeds ---------------------------------------------------------------------
+
+## Milestones kept across every descent. Each pays embers once, when first done.
+const FEATS := [
+	{"id": "parry1", "name": "First Parry", "desc": "Turn a blow aside.", "stat": "parries", "goal": 1, "reward": 15},
+	{"id": "parry50", "name": "Unbroken", "desc": "Parry fifty blows.", "stat": "parries", "goal": 50, "reward": 60},
+	{"id": "reflect10", "name": "Return to Sender", "desc": "Strike ten hexes back.", "stat": "reflects", "goal": 10, "reward": 40},
+	{"id": "kills300", "name": "Lamplighter's Round", "desc": "Put out three hundred foes.", "stat": "kills", "goal": 300, "reward": 60},
+	{"id": "depth4", "name": "Halfway Down", "desc": "Reach the fourth depth.", "stat": "max_depth", "goal": 4, "reward": 40},
+	{"id": "warden", "name": "The Hollow Warden", "desc": "Bring Maren down.", "stat": "wardens", "goal": 1, "reward": 120},
+	{"id": "duo", "name": "Kindred Flames", "desc": "Take a kindling that combines two.", "stat": "duos", "goal": 1, "reward": 30},
+	{"id": "stubborn", "name": "Stubborn", "desc": "Wake at the lamp ten times.", "stat": "deaths", "goal": 10, "reward": 30},
+	{"id": "lamps", "name": "The Street Remembers", "desc": "Light every lamp in town.", "stat": "town", "goal": 9, "reward": 0},
+]

@@ -22,6 +22,11 @@ Get the latest build from the [Releases page](https://github.com/Ayan-sh03/lante
 - The lamp runs on the same oil as the bolts. The emptier the flask, the smaller the light, and below a fifth, shades called gloams come out of the dark until the lamp is bright again.
 - Twenty-three kindlings to choose between as you level up, and relic powers found on the way down.
 - Wayside lamps that heal you and save the run. Three save slots, and any depth you have reached can be started from again.
+- Deaths that teach: the death screen shows what put you out and how to beat it, no single blow takes you from more than a heart to nothing, and the last heart gets a longer breath before the next hit. A foe winding up off screen or in the dark is marked at the edge of the screen.
+- Nothing earned is lost. Every foe put out pays embers straight into your profile, kept through any death, to spend lighting lamps in the town above: nine of them, each a lasting help to every descent after (another heart, a deeper flask, a fourth kindling to choose from, a fresh choice once per depth, and more).
+- Deeds, paid in embers, and a record of your best descents. After a few falls the lamp's resolve can be accepted, an optional easing that turns aside a few blows more for each fall, and put down again any time.
+- Six kindlings that combine two you already hold into something new, such as Wildfire (burning foes set their neighbours alight) or Riposte (a parry makes the next strike land twice as hard).
+- Wren remembers what put her out, and says so when she wakes.
 - Writings and plaques that tell what happened to the keepers, and two endings.
 
 ## Controls

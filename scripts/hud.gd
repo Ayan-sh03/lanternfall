@@ -339,7 +339,8 @@ func _btn(text: String, cb: Callable, w: float = 380.0) -> Button:
 	b.add_theme_stylebox_override("pressed", _frame_sb("ui_btn_down", 20))
 	b.add_theme_stylebox_override("disabled", _frame_sb("ui_btn", 20))
 	b.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
-	b.pressed.connect(cb)
+	if cb.is_valid():
+		b.pressed.connect(cb)
 	b.mouse_entered.connect(func(): Sfx.play("ui", -10.0))
 	return b
 
@@ -566,6 +567,7 @@ func show_title() -> void:
 	if has_save:
 		items.append(["Load", main.pick_load])
 	items.append(["Depths", main.pick_depth])
+	items.append(["Town (%d embers)" % int(main.profile["embers"]), show_town])
 	items.append(["Quit", main.quit_game])
 	var grid := GridContainer.new()
 	grid.columns = 2
@@ -790,7 +792,8 @@ func _advance() -> void:
 
 # --- Choices (boons, and the last decision) -------------------------------------
 
-func show_choice(title: String, sub: String, opts: Array, cb: Callable, back: Callable = Callable()) -> void:
+func show_choice(title: String, sub: String, opts: Array, cb: Callable, back: Callable = Callable(),
+		back_label: String = "Back") -> void:
 	var vb := _modal("choice", Color(0.0, 0.0, 0.02, 0.82))
 	choice_cb = cb
 	choice_n = opts.size()
@@ -811,7 +814,7 @@ func show_choice(title: String, sub: String, opts: Array, cb: Callable, back: Ca
 	if back.is_valid():
 		vb.add_child(_spacer(4))
 		var bc := CenterContainer.new()
-		bc.add_child(_btn("Back", back, 240.0))
+		bc.add_child(_btn(back_label, back, 240.0 if back_label == "Back" else 520.0))
 		vb.add_child(bc)
 
 
@@ -820,7 +823,8 @@ func show_choice(title: String, sub: String, opts: Array, cb: Callable, back: Ca
 ## place when the choice opens and lifts toward the lamp when pointed at.
 func _plaque(o: Dictionary, i: int) -> Control:
 	var col: Color = o.get("col", C_EMBER)
-	var w := 300.0
+	# Four plaques (the chapel lamp) hang a little narrower to fit the row.
+	var w := 300.0 if choice_n <= 3 else 268.0
 	var h := 396.0
 	var hang := 42.0
 	# The holder keeps its place in the row; the card inside is free to move.
@@ -1069,14 +1073,178 @@ func show_death() -> void:
 	var tl := _lbl("The dark takes you.", 70, Color(0.9, 0.3, 0.3), font_t, 8)
 	tl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	vb.add_child(tl)
-	vb.add_child(_wrapped(Story.DEATH_LINES[randi() % Story.DEATH_LINES.size()], 22, C_PARCH, 900.0, font_i))
-	vb.add_child(_spacer(6))
+	# What did it, shown, and what to do about it next time.
+	var cause: Dictionary = Story.CAUSES.get(main.last_cause, {})
+	if not cause.is_empty():
+		var row := HBoxContainer.new()
+		row.alignment = BoxContainer.ALIGNMENT_CENTER
+		row.add_theme_constant_override("separation", 18)
+		var icon := TextureRect.new()
+		icon.texture = Art.tex.get(cause["icon"], Art.tex["glow"])
+		icon.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+		icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		icon.custom_minimum_size = Vector2(96, 96)
+		icon.modulate = Color(1.0, 0.75, 0.7)
+		row.add_child(icon)
+		var col := VBoxContainer.new()
+		col.alignment = BoxContainer.ALIGNMENT_CENTER
+		var who := "Put out by %s%s." % [cause["who"], "'s " + cause["how"] if not cause["how"].contains(",") else ", " + cause["how"]]
+		col.add_child(_lbl(who, 30, C_PARCH, font_b))
+		col.add_child(_wrapped(cause["tip"], 19, C_TEAL, 640.0, font_i))
+		row.add_child(col)
+		vb.add_child(row)
+	vb.add_child(_wrapped(Story.DEATH_LINES[randi() % Story.DEATH_LINES.size()], 20, C_DIM, 900.0, font_i))
 	vb.add_child(_wrapped(_stats_text(), 18, C_DIM, 900.0))
-	vb.add_child(_spacer(16))
-	for b in [_btn("Wake at your last lamp", main.retry), _btn("Quit to title", main.to_title)]:
+	# Nothing earned is lost: say so.
+	var got: int = main.run_embers
+	var em := _lbl("%s%d embers wait for you in the town above." % [("+%d embers kept.   " % got) if got > 0 else "",
+		int(main.profile["embers"])], 22, C_EMBER, font)
+	em.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vb.add_child(em)
+	vb.add_child(_spacer(8))
+	var btns: Array = [_btn("Wake at your last lamp", main.retry), _btn("Quit to title", main.to_title)]
+	# After a few falls, offer the lamp's resolve; it can be put down again any time.
+	if int(main.profile["tally"].get("deaths", 0)) >= 3 or main.profile["resolve"]:
+		var rb := _btn("", Callable(), 620.0)
+		rb.add_theme_font_size_override("font_size", 22)
+		_resolve_text(rb)
+		rb.pressed.connect(func():
+			main.set_resolve(not main.profile["resolve"])
+			_resolve_text(rb))
+		btns.append(rb)
+	for b in btns:
 		var cc := CenterContainer.new()
 		cc.add_child(b)
 		vb.add_child(cc)
+
+
+func _resolve_text(b: Button) -> void:
+	if main.profile["resolve"]:
+		b.text = "The lamp's resolve: ON  (%d%% of blows turned)" % roundi(main.resolve_chance() * 100.0)
+	else:
+		b.text = "Accept the lamp's resolve (blows sometimes turned)"
+
+
+# --- The town above ----------------------------------------------------------------
+
+## The town Wren comes home to between descents. Embers carried up light its
+## lamps one by one, and each lit lamp helps every descent after.
+func show_town() -> void:
+	var vb := _modal("town", Color.BLACK, "dark")
+	vb.add_theme_constant_override("separation", 10)
+	var tl := _lbl("THE LAMPLIT STREET", 56, C_EMBER, _spaced(font_t, 6), 8)
+	tl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vb.add_child(tl)
+	var lit: int = (main.profile["town"] as Array).size()
+	var sub := _lbl("%d embers      %d of %d lamps lit" % [int(main.profile["embers"]), lit, Story.TOWN.size()], 24, C_PARCH, font)
+	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vb.add_child(sub)
+	var grid := GridContainer.new()
+	grid.columns = 3
+	grid.add_theme_constant_override("h_separation", 12)
+	grid.add_theme_constant_override("v_separation", 10)
+	for l in Story.TOWN:
+		grid.add_child(_town_card(l))
+	var cc := CenterContainer.new()
+	cc.add_child(grid)
+	vb.add_child(cc)
+	var row := HBoxContainer.new()
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	row.add_theme_constant_override("separation", 14)
+	row.add_child(_btn("Deeds", show_deeds, 260.0))
+	row.add_child(_btn("Back", show_title, 260.0))
+	vb.add_child(row)
+
+
+func _town_card(l: Dictionary) -> Control:
+	var have: bool = main.has_lamp(l["id"])
+	var cost := int(l["cost"])
+	var afford: bool = int(main.profile["embers"]) >= cost
+	var b := Button.new()
+	b.custom_minimum_size = Vector2(390, 128)
+	b.add_theme_stylebox_override("normal", _frame_sb("ui_btn_hot" if have else "ui_btn", 20))
+	b.add_theme_stylebox_override("hover", _frame_sb("ui_btn_hot", 20))
+	b.add_theme_stylebox_override("pressed", _frame_sb("ui_btn_down", 20))
+	b.add_theme_stylebox_override("disabled", _frame_sb("ui_btn", 20))
+	b.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
+	b.disabled = have or not afford
+	b.pressed.connect(func():
+		if main.light_town_lamp(l["id"]):
+			Sfx.play("whoomp", -4.0)
+			Sfx.play("chime", -6.0)
+			show_town())
+	var hb := HBoxContainer.new()
+	_full(hb)
+	hb.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	hb.add_theme_constant_override("separation", 10)
+	b.add_child(hb)
+	var lamp := TextureRect.new()
+	lamp.texture = Art.tex["lamp1" if have else "lamp0"]
+	lamp.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	lamp.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	lamp.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	lamp.custom_minimum_size = Vector2(64, 0)
+	lamp.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	hb.add_child(lamp)
+	var v := VBoxContainer.new()
+	v.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	v.alignment = BoxContainer.ALIGNMENT_CENTER
+	v.add_theme_constant_override("separation", 2)
+	v.add_child(_lbl(l["name"], 21, C_EMBER if have else C_PARCH, font_b))
+	var d := _wrapped(l["desc"], 15, C_DIM, 290.0)
+	v.add_child(d)
+	var price := _lbl("LIT" if have else "%d embers" % cost, 18, C_EMBER if have else (C_TEAL if afford else Color(0.55, 0.4, 0.38)), font)
+	v.add_child(price)
+	hb.add_child(v)
+	for n in [v, d, price]:
+		n.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return b
+
+
+## Deeds done and to do, and the best of all descents.
+func show_deeds() -> void:
+	var vb := _modal("deeds", Color.BLACK, "dark")
+	vb.add_theme_constant_override("separation", 6)
+	var tl := _lbl("DEEDS", 56, C_EMBER, _spaced(font_t, 6), 8)
+	tl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vb.add_child(tl)
+	var grid := GridContainer.new()
+	grid.columns = 2
+	grid.add_theme_constant_override("h_separation", 40)
+	grid.add_theme_constant_override("v_separation", 6)
+	for f in Story.FEATS:
+		var done: bool = (main.profile["feats"] as Array).has(f["id"])
+		var prog: int = mini(main.feat_progress(f), int(f["goal"]))
+		var left := _lbl(("[x]  " if done else "[  ]  ") + f["name"], 22, C_EMBER if done else C_PARCH, font_b)
+		left.custom_minimum_size = Vector2(380, 0)
+		grid.add_child(left)
+		var right := _lbl("%s   %d / %d%s" % [f["desc"], prog, int(f["goal"]),
+			("   +%d" % int(f["reward"])) if int(f["reward"]) > 0 else ""], 18, C_DIM if not done else C_PARCH, font)
+		grid.add_child(right)
+	var cc := CenterContainer.new()
+	cc.add_child(grid)
+	vb.add_child(cc)
+	vb.add_child(_spacer(6))
+	var b: Dictionary = main.profile["best"]
+	var ws := int(b.get("win_secs", 0))
+	var best := _lbl("Deepest reached: %s      Most put out in one descent: %d      Quickest finish: %s      Falls: %d" % [
+		Story.ROMAN[clampi(int(b.get("depth", 1)), 1, 7) - 1], int(b.get("kills", 0)),
+		("%d:%02d" % [ws / 60, ws % 60]) if ws > 0 else "-", int(main.profile["tally"].get("deaths", 0))], 19, C_TEAL, font)
+	best.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vb.add_child(best)
+	var row := HBoxContainer.new()
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	row.add_theme_constant_override("separation", 14)
+	var rb := _btn("", Callable(), 620.0)
+	rb.add_theme_font_size_override("font_size", 22)
+	_resolve_text(rb)
+	rb.pressed.connect(func():
+		main.set_resolve(not main.profile["resolve"])
+		_resolve_text(rb))
+	row.add_child(rb)
+	row.add_child(_btn("Back", show_town, 240.0))
+	vb.add_child(row)
 
 
 func show_end(kind: int) -> void:
@@ -1262,6 +1430,7 @@ func _draw_hud() -> void:
 		return
 	var c := hud_c
 	var vs := hud_c.size
+	_draw_warnings(c, vs)
 	# Hearts.
 	var hearts := int(ceil(game.max_hp / 2.0))
 	for i in hearts:
@@ -1274,7 +1443,7 @@ func _draw_hud() -> void:
 	var oil_k: float = clampf(game.oil / game.max_oil, 0.0, 1.0)
 	var bw: float = 150.0 + (game.max_oil - 100.0) * 0.8
 	c.draw_rect(Rect2(bx - 2, by - 2, bw + 4, 16), Color(0, 0, 0, 0.65))
-	c.draw_rect(Rect2(bx, by, bw * oil_k, 12), Color(1.0, 0.6, 0.14) if game.oil >= 18.0 else Color(0.6, 0.3, 0.12))
+	c.draw_rect(Rect2(bx, by, bw * oil_k, 12), Color(1.0, 0.6, 0.14) if game.oil >= game.bolt_cost() else Color(0.6, 0.3, 0.12))
 	c.draw_rect(Rect2(bx, by, bw * oil_k, 4), Color(1.0, 0.82, 0.4, 0.8))
 	c.draw_texture_rect(Art.tex["oil"], Rect2(bx + bw + 10, by - 8, 18, 20), false)
 	var xp_k: float = clampf(float(game.xp) / game.xp_next, 0.0, 1.0)
@@ -1389,6 +1558,47 @@ func _draw_icon(c: Control, id: String, o: Vector2, on: bool) -> void:
 			c.draw_polyline(PackedVector2Array([o + Vector2(0, -11), o + Vector2(11, 0), o + Vector2(0, 11), o + Vector2(-11, 0),
 				o + Vector2(0, -11)]), col, 2.5)
 			c.draw_circle(o, 3.0, Color(1, 1, 0.9) if on else col)
+
+
+## A foe winding up out of sight (off the screen, or lost in the dark) gets a
+## red chevron at the edge of the screen, pointing at it: no blow should come
+## from nowhere.
+func _draw_warnings(c: Control, vs: Vector2) -> void:
+	if game.dead or blocking():
+		return
+	var mid := vs * 0.5
+	var pulse := 0.6 + 0.4 * sin(t * 18.0)
+	for e in game.enemies:
+		if e.dead or not e.awake:
+			continue
+		var tele: bool = e.state == "wind" or e.state == "cast" or e.state == "fuse" or e.state.ends_with("_w") \
+			or e.state == "charge" or e.state == "lunge"
+		if not tele:
+			continue
+		var sp: Vector2 = game.screen_pos(e.position) - hud_group.position
+		var on_screen := Rect2(Vector2(40, 40), vs - Vector2(80, 80)).has_point(sp)
+		if on_screen and e.visible:
+			continue
+		if (e.position - game.ppos).length() > 260.0:
+			continue
+		var d := (sp - mid).normalized() if sp != mid else Vector2.UP
+		# Where the line from the centre toward it leaves the screen.
+		var k := minf((mid.x - 44.0) / maxf(absf(d.x), 0.001), (mid.y - 44.0) / maxf(absf(d.y), 0.001))
+		var at := mid + d * k
+		if on_screen:
+			at = sp
+		var side := d.orthogonal()
+		var col := Color(1.0, 0.25, 0.2, 0.9 * pulse)
+		c.draw_colored_polygon(PackedVector2Array([at + d * 16.0, at - d * 6.0 + side * 13.0, at - d * 6.0 - side * 13.0]), col)
+		c.draw_colored_polygon(PackedVector2Array([at - d * 4.0, at - d * 20.0 + side * 13.0, at - d * 20.0 - side * 13.0]),
+			Color(col.r, col.g, col.b, col.a * 0.5))
+
+
+## A deed done: a line in ember, and the embers it pays.
+func deed(f: Dictionary) -> void:
+	var r := int(f["reward"])
+	say("Deed done: %s%s" % [f["name"], ("   (+%d embers)" % r) if r > 0 else ""], 4.0, C_EMBER)
+	Sfx.play("chime", -4.0)
 
 
 func _draw_floats() -> void:

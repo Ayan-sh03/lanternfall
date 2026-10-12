@@ -275,6 +275,12 @@ func tick(dt: float) -> void:
 			g.fx.flame(center() + Vector2(g.rng.randf_range(-4.0, 4.0), 2.0))
 		if burn_acc >= 0.5:
 			burn_acc = 0.0
+			# Wildfire: the flames reach whoever stands too close.
+			if g.stats["wildfire"] > 0.0:
+				for o in g.enemies:
+					if o != self and not o.dead and o.burn_t <= 0.0 and (o.position - position).length() < 24.0:
+						o.burn_t = 2.5
+						o.burn_dps = burn_dps
 			hurt(burn_dps * 0.5, Vector2.ZERO, Color(1.0, 0.6, 0.2))
 			if dead:
 				return
@@ -321,13 +327,15 @@ func _seek() -> Vector2:
 
 
 func _touch(dist: float, reach: float, amount: int = -1, kb: float = 170.0) -> void:
-	if dist < reach and touch_cd <= 0.0:
-		g.hurt_player(dmg if amount < 0 else amount, position, kb)
+	# A little short of the full reach: near misses should miss.
+	if dist < reach * 0.85 and touch_cd <= 0.0:
+		g.hurt_player(dmg if amount < 0 else amount, position, kb, self)
 		touch_cd = 0.7
 
 
 func _shoot(d: Vector2, spd: float) -> void:
 	g.add_shot(center(), d * spd, false, 1, Color(1.0, 0.3, 0.75))
+	g.shots[g.shots.size() - 1]["src"] = kind
 
 
 func _separate(dt: float) -> void:
@@ -445,7 +453,7 @@ func _ai_moth(dt: float, to_p: Vector2, dist: float) -> void:
 	else:
 		vel = _seek().rotated(sin(anim * 4.0 + seed_f) * 0.9) * speed
 		if dist < 10.0 and touch_cd <= 0.0:
-			g.hurt_player(dmg, position, 120.0)
+			g.hurt_player(dmg, position, 120.0, self)
 			touch_cd = 0.9
 			state = "back"
 			st = 0.7
@@ -565,7 +573,7 @@ func _ai_wisp(dt: float, dist: float) -> void:
 				g.add_shake(6.0)
 				Sfx.play("boom", -2.0)
 				if dist < 36.0:
-					g.hurt_player(2, position, 240.0)
+					g.hurt_player(2, position, 240.0, self)
 				xp = 0
 				die()
 
@@ -606,7 +614,7 @@ func _ai_warden(dt: float, to_p: Vector2, dist: float) -> void:
 				Sfx.play("slash3", 2.0)
 				g.add_shake(5.0)
 				if dist < 52.0:
-					g.hurt_player(2, position, 280.0)
+					g.hurt_player(2, position, 280.0, self)
 				state = "rest"
 				st = 0.6
 		"ring_w":

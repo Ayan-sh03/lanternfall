@@ -3,6 +3,8 @@ extends Node
 ## Plays through every floor with a simple bot, exercises each interaction, saves
 ## screenshots along the way, then quits. Not used in normal play.
 
+const Story = preload("res://scripts/story.gd")
+
 var main
 var dir := ""
 
@@ -464,6 +466,190 @@ func mechanics_test() -> void:
 	get_tree().quit(1 if fails > 0 else 0)
 
 
+var pfails := 0
+
+
+func pcheck(ok: bool, what: String) -> void:
+	print("PROG %s %s" % [what, "ok" if ok else "FAIL"])
+	if not ok:
+		pfails += 1
+
+
+## Fair deaths, kept embers, the town, deeds and the kindlings that combine:
+## each checked for what it should do, with screenshots of the new screens.
+func progress_test() -> void:
+	main.slot = 9
+	var pr: Dictionary = main.profile
+	pr["embers"] = 0
+	pr["town"] = []
+	pr["tally"] = {}
+	pr["feats"] = []
+	pr["best"] = {}
+	pr["resolve"] = false
+	await w(0.5)
+	main.hud._close_modal()
+	main.new_game(1)
+	await w(2.5)
+	var g = main.game
+	g.bot = true
+	g.bot_manual = true
+	g.hud.hint_t = 0.0
+	g.hud.card_t = 0.0
+	for e in g.enemies:
+		e.dead = true
+		e.visible = false
+	for p in g.props:
+		if p["type"] == "stairs":
+			g.teleport(p["pos"] + Vector2(-30, 20))
+	await w(0.3)
+
+	# Mercy: one blow cannot take Wren from more than a heart to nothing.
+	g.hp = 8
+	g.invuln = 0.0
+	g.hurt_player(20, g.ppos + Vector2(10, 0), 100.0, "brute")
+	pcheck(g.hp == 1 and not g.dead, "a huge blow from full health leaves one half-heart (hp %d)" % g.hp)
+	pcheck(g.invuln >= 1.5, "the last heart gets a longer breath (invuln %.2f)" % g.invuln)
+	pcheck(g.last_cause == "brute", "the blow's source is remembered (%s)" % g.last_cause)
+
+	# Embers: a kill pays at once, into the profile.
+	var e0 := int(pr["embers"])
+	var h = g.spawn_enemy("husk", g.ppos + Vector2(60, 0), 0)
+	var xp: int = h.xp
+	h.hurt(99999.0, Vector2.ZERO)
+	pcheck(int(pr["embers"]) == e0 + xp and xp > 0, "a kill banks its embers (%d -> %d)" % [e0, int(pr["embers"])])
+
+	# Deeds: the first parry pays out.
+	var e1 := int(pr["embers"])
+	main.tally("parries")
+	pcheck((pr["feats"] as Array).has("parry1") and int(pr["embers"]) == e1 + 15, "the first-parry deed pays 15 embers")
+
+	# The lamp's resolve turns some blows, about as often as it says.
+	pr["resolve"] = true
+	pr["tally"]["deaths"] = 20
+	var turned := 0
+	for i in 300:
+		g.hp = 8
+		g.invuln = 0.0
+		var hp0: int = g.hp
+		g.hurt_player(1, g.ppos + Vector2(10, 0), 0.0, "husk")
+		if g.hp == hp0:
+			turned += 1
+	var rate := turned / 300.0
+	pcheck(absf(rate - main.resolve_chance()) < 0.1, "resolve turns %.0f%% of blows (meant %.0f%%)" % [rate * 100.0, main.resolve_chance() * 100.0])
+	pr["resolve"] = false
+	pr["tally"]["deaths"] = 0
+	g.hp = g.max_hp
+
+	# Kindlings that combine.
+	g.apply_boon("burn")
+	g.apply_boon("trail")
+	var offered := false
+	for k in 30:
+		g._offer_boons("t", "s")
+		for o in g.hud.modal_root.find_children("*", "Label", true, false):
+			if (o as Label).text == "Wildfire":
+				offered = true
+		g.hud._close_modal()
+		if offered:
+			break
+	pcheck(offered, "Wildfire is offered once Afterburn and Cinder Trail are held")
+	g.apply_boon("wildfire")
+	pcheck(int(pr["tally"].get("duos", 0)) == 1 and (pr["feats"] as Array).has("duo"), "taking a combined kindling counts as a deed")
+	var a = g.spawn_enemy("husk", g.ppos + Vector2(70, 0), 0)
+	var b = g.spawn_enemy("husk", g.ppos + Vector2(84, 0), 0)
+	for e in [a, b]:
+		e.hp = 999.0
+		e.awake = true
+		e.stun = 5.0
+	a.burn_t = 3.0
+	a.burn_dps = 6.0
+	await w(1.2)
+	pcheck(b.burn_t > 0.0, "Wildfire spreads a burn to the foe beside")
+	g.apply_boon("starfall")
+	var n0: int = g.shots.size()
+	g.add_shot(a.center() - Vector2(8, 0), Vector2(200, 0), true, 5.0, Color(1, 0.6, 0.2))
+	await w(0.1)
+	var splits := 0
+	for sh in g.shots:
+		if sh.get("split", false):
+			splits += 1
+	pcheck(splits >= 2, "Starfall breaks a bolt into two on a hit (%d)" % splits)
+	g.apply_boon("riposte")
+	a.state = "lunge"
+	a.st = 0.2
+	a.stun = 0.0
+	a.touch_cd = 1.0
+	g.aim = (a.center() - g.pcenter()).normalized()
+	g.teleport(a.position - Vector2(18, 0))
+	await w(0.05)
+	g.atk_cd = 0.0
+	g.do_slash()
+	pcheck(g.riposte_t > 0.0, "a parry with Riposte readies a sure strike")
+	a.state = "chase"
+	var hp_a: float = a.hp
+	g.atk_cd = 0.0
+	g.combo_t = 0.0
+	g.do_slash()
+	pcheck(g.riposte_t <= 0.0 and hp_a - a.hp >= g.stats["dmg"] * 1.9, "the next strike lands twice as hard (%.0f)" % (hp_a - a.hp))
+	for e in [a, b]:
+		e.dead = true
+		e.visible = false
+	await w(0.5)
+
+	# The death screen: what did it, what to do about it, embers kept.
+	g.invuln = 0.0
+	g.hp = 1
+	g.hurt_player(2, g.ppos + Vector2(10, 0), 100.0, "brute")
+	await w(3.4)
+	pcheck(main.hud.modal == "death" and main.last_cause == "brute", "the death screen names the Bellringer")
+	await shot("p_death")
+	pcheck(g._wake_line() == Story.WREN_WAKE["brute"][0], "Wren's waking line is about the bell")
+
+	# The town: light everything, then a fresh descent carries it all.
+	pr["embers"] = 2000
+	main.hud.show_town()
+	await w(0.4)
+	await shot("p_town")
+	for l in Story.TOWN:
+		main.light_town_lamp(l["id"])
+	pcheck((pr["town"] as Array).size() == Story.TOWN.size() and (pr["feats"] as Array).has("lamps"), "every lamp lights, and the deed for it")
+	main.hud.show_town()
+	await w(0.3)
+	await shot("p_town_lit")
+	main.hud.show_deeds()
+	await w(0.3)
+	await shot("p_deeds")
+	main.hud._close_modal()
+	main.new_game(1)
+	await w(2.0)
+	g = main.game
+	g.hud.card_t = 0.0
+	pcheck(g.max_hp == 10 and g.max_oil == 125.0 and g.spare_match and g.bolt_cost() == 15.0, "the lit town strengthens a fresh descent")
+	g.add_xp(g.xp_next)
+	await w(1.0)
+	pcheck(main.hud.modal == "choice" and main.hud.choice_n == 4, "the chapel lamp offers four kindlings (%d)" % main.hud.choice_n)
+	await shot("p_choice4")
+	var bell := false
+	for o in main.hud.modal_root.find_children("*", "Button", true, false):
+		if (o as Button).text.begins_with("Ring the bell"):
+			bell = true
+	pcheck(bell, "the bell tower lamp offers a fresh choice")
+	main.hud._choose(0)
+
+	# A foe winding up off the screen gets a chevron at the edge.
+	g.bot = true
+	g.bot_manual = true
+	var br = g.spawn_enemy("brute", g.ppos + Vector2(0, -150), 0)
+	br.awake = true
+	br.state = "wind"
+	br.st = 5.0
+	await w(0.3)
+	await shot("p_warning")
+	print("PROG %s" % ("PASS" if pfails == 0 else "FAIL %d" % pfails))
+	main.delete_save(9)
+	get_tree().quit(1 if pfails > 0 else 0)
+
+
 var probe_on := false
 var probe_frames := 0
 var probe_sum := 0.0
@@ -772,6 +958,9 @@ func run() -> void:
 		return
 	if OS.get_cmdline_user_args().has("--mechanics"):
 		mechanics_test()
+		return
+	if OS.get_cmdline_user_args().has("--progress"):
+		progress_test()
 		return
 	var hud = main.hud
 	main.slot = 9

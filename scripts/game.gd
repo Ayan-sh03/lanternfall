@@ -95,7 +95,9 @@ var xp_next := 22
 var stats := {"dmg": 10.0, "reach": 1.0, "speed": 80.0, "bolt_dmg": 13.0, "bolt_n": 1, "dash_cd": 0.9,
 	"light": 1.0, "oil_regen": 2.0, "heart_drop": 0.05, "sear": 0.0, "siphon": 0.0, "thorns": 0.0, "pierce": 0,
 	"power": 1.0, "cdr": 1.0, "orbit": 0, "wave": 0.0, "burn": 0.0, "shatter": 0.0, "dash_n": 1, "trail": 0.0,
-	"magnet": 1.0, "xp_mult": 1.0, "crit": 0.0}
+	"magnet": 1.0, "xp_mult": 1.0, "crit": 0.0,
+	# Kindlings that combine two others (Story.DUOS).
+	"wildfire": 0.0, "starfall": 0.0, "flashstep": 0.0, "chainburst": 0.0, "riposte": 0.0, "mote_k": 1.0}
 var boons: Array = []
 var atk_cd := 0.0
 var bolt_cd := 0.0
@@ -175,6 +177,12 @@ var pix_cache := {}
 const GLOAM_LOW := 0.2
 const GLOAM_SAFE := 0.4
 var gloam_t := 0.0
+## What last struck Wren (a key of Story.CAUSES), for the death screen.
+var last_cause := ""
+var riposte_t := 0.0
+var dash_refunded := false
+## The depth on which the bell tower's fresh choice was last used.
+var reroll_depth := -99
 
 var bot := false
 var bot_manual := false
@@ -199,7 +207,11 @@ func start(d: int, restore: Dictionary = {}, prepared: bool = false) -> void:
 		_apply_save(restore)
 	elif prepared:
 		_prepare(d)
+	if restore.is_empty():
+		_apply_town()
 	load_floor(d, restore)
+	if restore.get("revive", false):
+		hud.say(_wake_line(), 5.0, hud.C_TEAL)
 
 
 func _build_nodes() -> void:
@@ -421,6 +433,40 @@ func save_game(lamp_idx: int) -> void:
 		"powers": powers.duplicate(), "spare": spare_match, "match_used": match_used, "kills": kills,
 		"pages": pages, "run_time": run_time, "said": said.duplicate(), "done_props": done,
 		"dead_spawns": dead_spawns.duplicate(), "seen": Marshalls.raw_to_base64(seen)})
+
+
+## The lamps lit in the town above, at the start of each fresh descent.
+func _apply_town() -> void:
+	if main.has_lamp("tinker"):
+		max_hp += 2
+		hp = max_hp
+	if main.has_lamp("oil"):
+		max_oil += 25.0
+		oil = max_oil
+	if main.has_lamp("smith"):
+		stats["dmg"] *= 1.1
+	if main.has_lamp("physician"):
+		stats["heart_drop"] += 0.04
+	if main.has_lamp("watch"):
+		spare_match = true
+
+
+## What Wren says on waking at the lamp: about what put her out, the first
+## time it does; a landmark when the falls mount up.
+func _wake_line() -> String:
+	var deaths := int(main.profile["tally"].get("deaths", 0))
+	if Story.WREN_STUBBORN.has(deaths):
+		return Story.WREN_STUBBORN[deaths]
+	var cause: String = main.last_cause
+	if not Story.WREN_WAKE.has(cause):
+		return "Up again. The lamp still burns."
+	var lines: Array = Story.WREN_WAKE[cause]
+	var seen := int(main.profile["tally"].get("fell_" + cause, 0))
+	return lines[0] if seen <= 1 else lines[rng.randi() % lines.size()]
+
+
+func bolt_cost() -> float:
+	return 15.0 if main.has_lamp("chandler") else 18.0
 
 
 func _apply_save(s: Dictionary) -> void:
@@ -897,6 +943,7 @@ func _update_player(dt: float) -> void:
 			dash_stock += 1
 			dash_cd = stats["dash_cd"] if dash_stock < stats["dash_n"] else 0.0
 	invuln -= dt
+	riposte_t -= dt
 	combo_t -= dt
 	input_lock -= dt
 	flash = maxf(0.0, flash - dt * 5.0)
@@ -946,6 +993,9 @@ func _update_player(dt: float) -> void:
 				if not e.dead and not dash_hit.has(e) and (e.center() - pcenter()).length() < e.hit_r + 9.0:
 					dash_hit.append(e)
 					e.hurt(stats["sear"], dash_dir * 60.0)
+					if stats["flashstep"] > 0.0 and not dash_refunded:
+						dash_refunded = true
+						dash_stock = mini(stats["dash_n"], dash_stock + 1)
 	else:
 		pvel = pvel.move_toward(mv * stats["speed"], 1900.0 * dt)
 	pknock = pknock.move_toward(Vector2.ZERO, 620.0 * dt)
@@ -955,7 +1005,7 @@ func _update_player(dt: float) -> void:
 	if not dead and dash_t <= 0.0:
 		if want_atk and atk_cd <= 0.0:
 			do_slash()
-		elif want_bolt and bolt_cd <= 0.0 and oil >= 18.0:
+		elif want_bolt and bolt_cd <= 0.0 and oil >= bolt_cost():
 			do_bolt()
 
 	# Animation.
@@ -1085,6 +1135,7 @@ func try_dash() -> void:
 		dash_cd = stats["dash_cd"]
 	invuln = maxf(invuln, 0.3)
 	dash_hit.clear()
+	dash_refunded = false
 	squash(0.32)
 	Sfx.play("dash", -5.0)
 	fx.spark(pcenter(), Color(0.5, 0.9, 1.0), 8, 50.0, 0.3, 2.0)
@@ -1111,6 +1162,10 @@ func do_slash() -> void:
 	var hit := 0
 	var crits := 0
 	var killed := 0
+	# A riposte readied by an earlier parry is spent on this swing; one this
+	# swing earns waits for the next.
+	var sure := riposte_t > 0.0
+	riposte_t = 0.0
 	squash(0.16 if heavy else 0.09)
 	for e in enemies:
 		if e.dead:
@@ -1121,7 +1176,7 @@ func do_slash() -> void:
 			if _parry(e):
 				hit += 1
 				continue
-			var crit: bool = rng.randf() < stats["crit"]
+			var crit: bool = rng.randf() < stats["crit"] or sure
 			if crit:
 				e.hurt(dmg * 2.0, aim * 170.0, Color(1.0, 0.55, 0.15))
 				fx.spark(e.center(), Color(1.0, 0.8, 0.3), 10, 110.0, 0.35, 2.0)
@@ -1167,7 +1222,7 @@ func do_slash() -> void:
 
 
 func do_bolt() -> void:
-	oil -= 18.0
+	oil -= bolt_cost()
 	bolt_cd = 0.38
 	bolt_buf = 0.0
 	pose = "point"
@@ -1200,11 +1255,31 @@ func add_shot(pos: Vector2, vel: Vector2, friendly: bool, dmg, col: Color, pierc
 		"r": 4.0 + (size - 0.38) * 22.0})
 
 
-func hurt_player(amount: int, from: Vector2, kb: float = 170.0) -> bool:
+## src is the foe (or, for a hex, the kind of foe) that dealt the blow.
+func hurt_player(amount: int, from: Vector2, kb: float = 170.0, src = null) -> bool:
 	if dead or invuln > 0.0 or god:
 		return false
+	# The lamp's resolve, if accepted: now and then a blow is turned aside.
+	if rng.randf() < main.resolve_chance():
+		invuln = 0.5
+		pknock = (ppos - from).normalized() * kb * 0.5
+		hud.float_text(ppos + Vector2(0, -26), "TURNED", Color(1.0, 0.85, 0.5))
+		Sfx.play("clank", -4.0)
+		return true
+	if src is String:
+		last_cause = src
+	elif src != null and is_instance_valid(src):
+		last_cause = src.kind
+	# No single blow takes Wren from more than one heart straight to nothing.
+	var spared: bool = amount >= hp and hp > 2
 	hp -= amount
+	if spared:
+		hp = 1
 	invuln = 0.9
+	if hp > 0 and hp <= 2:
+		# The last heart: a longer breath before the next blow can land.
+		invuln = 1.6
+		slow_t = maxf(slow_t, 0.3)
 	flash = 1.0
 	pknock = (ppos - from).normalized() * kb
 	add_shake(5.0)
@@ -1288,6 +1363,9 @@ func on_wake(_e) -> void:
 
 func enemy_died(e) -> void:
 	kills += 1
+	main.tally("kills")
+	if e.xp > 0:
+		main.bank(e.xp)
 	hitstop = maxf(hitstop, 0.05)
 	add_shake(2.5)
 	Sfx.play("kill", -4.0)
@@ -1305,6 +1383,9 @@ func enemy_died(e) -> void:
 		for o in enemies:
 			if o != e and not o.dead and (o.position - e.position).length() < 36.0:
 				o.hurt(stats["shatter"], (o.position - e.position).normalized() * 120.0, Color(1.0, 0.6, 0.2))
+				if stats["chainburst"] > 0.0 and not o.dead:
+					o.burn_t = 3.0
+					o.burn_dps = maxf(stats["burn"], 6.0)
 	if e.spawn_idx >= 0:
 		dead_spawns.append(e.spawn_idx)
 	if e.xp > 0:
@@ -1406,6 +1487,9 @@ func _parry(e) -> bool:
 	Sfx.play("clank", 0.0)
 	Sfx.play("punch", -4.0)
 	_say_once("parry", "Meet them as they come, and they break on you.")
+	main.tally("parries")
+	if stats["riposte"] > 0.0:
+		riposte_t = 1.5
 	return true
 
 
@@ -1437,6 +1521,7 @@ func _reflect(s: Dictionary) -> void:
 	hitstop = maxf(hitstop, 0.05)
 	Sfx.play("clank", -2.0, 0.2)
 	_say_once("reflect", "Struck back. Let it learn what it threw.")
+	main.tally("reflects")
 
 
 func _update_gloam(dt: float) -> void:
@@ -1554,6 +1639,11 @@ func _update_shots(dt: float) -> void:
 				if (e.center() - pos).length() < e.hit_r + s["r"]:
 					e.hurt(s["dmg"], s["vel"].normalized() * 90.0)
 					fx.impact(pos, s["vel"].angle(), s["col"], 0.6)
+					if stats["starfall"] > 0.0 and not s.get("split", false):
+						for sgn in [-1.0, 1.0]:
+							add_shot(pos, s["vel"].rotated(0.65 * sgn) * 0.85, true, s["dmg"] * 0.5, s["col"], 0, 0.28, 0.6)
+							shots[shots.size() - 1]["split"] = true
+							shots[shots.size() - 1]["hit"] = [e]
 					if stats["burn"] > 0.0 and not e.dead:
 						e.burn_t = 3.0
 						e.burn_dps = stats["burn"]
@@ -1565,8 +1655,8 @@ func _update_shots(dt: float) -> void:
 			for p in props:
 				if p["type"] == "urn" and not p["done"] and (p["pos"] - pos).length() < 8.0:
 					_break_urn(p)
-		elif not gone and (pcenter() - pos).length() < 6.5:
-			if hurt_player(s["dmg"], pos - s["vel"] * 0.1, 130.0):
+		elif not gone and (pcenter() - pos).length() < 5.0:
+			if hurt_player(s["dmg"], pos - s["vel"] * 0.1, 130.0, s.get("src", "")):
 				gone = true
 		s["node"].position = pos
 		if gone:
@@ -1641,11 +1731,25 @@ func _offer_boons(title: String, sub: String) -> void:
 			continue
 		pool.append(b)
 	var opts: Array = []
-	for i in 3:
+	for i in mini(4 if main.has_lamp("chapel") else 3, pool.size()):
 		var j := rng.randi() % pool.size()
 		opts.append(pool[j])
 		pool.remove_at(j)
-	hud.show_choice(title, sub, opts, func(i): apply_boon(opts[i]["id"]))
+	# Once Wren holds both halves of a pair, its combined kindling may take a place.
+	var ready: Array = []
+	for d in Story.DUOS:
+		if not boons.has(d["id"]) and boons.has(d["needs"][0]) and boons.has(d["needs"][1]):
+			ready.append(d)
+	if not ready.is_empty() and rng.randf() < 0.65:
+		var d: Dictionary = ready[rng.randi() % ready.size()]
+		opts[rng.randi() % opts.size()] = {"id": d["id"], "name": d["name"], "desc": d["desc"],
+			"col": Story.DUO_COL, "icon": hud.ICONS.get(d["needs"][0], "i_flame")}
+	var again := Callable()
+	if main.has_lamp("belltower") and reroll_depth != depth:
+		again = func():
+			reroll_depth = depth
+			_offer_boons(title, sub)
+	hud.show_choice(title, sub, opts, func(i): apply_boon(opts[i]["id"]), again, "Ring the bell: a fresh choice")
 
 
 func apply_boon(id: String) -> void:
@@ -1704,6 +1808,15 @@ func apply_boon(id: String) -> void:
 		"focus":
 			stats["power"] *= 1.3
 			stats["cdr"] *= 0.82
+		"wildfire", "starfall", "flashstep", "chainburst", "riposte":
+			stats[id] = 1.0
+		"conflux":
+			stats["orbit"] += 2
+			stats["mote_k"] = 1.5
+			_sync_motes()
+	for d in Story.DUOS:
+		if d["id"] == id:
+			main.tally("duos")
 	if xp >= xp_next:
 		levelup_t = 0.5
 
@@ -1805,6 +1918,8 @@ func interact() -> void:
 			if rng.randf() < 0.6:
 				drop("oil", pos + Vector2(0, 4))
 		"lamp":
+			if main.has_lamp("maren"):
+				hp = max_hp
 			if p["done"]:
 				# Already lit: resting here just writes the save again.
 				oil = max_oil
@@ -1826,6 +1941,7 @@ func interact() -> void:
 			p["done"] = true
 			p["node"].queue_free()
 			pages += 1
+			main.bank(5)
 			Sfx.play("page")
 			add_xp(5)
 			hud.dialog([Story.PAGES[depth - 1]])
@@ -1833,6 +1949,7 @@ func interact() -> void:
 			if not p.has("read"):
 				p["read"] = true
 				pages += 1
+				main.bank(3)
 				add_xp(3)
 			Sfx.play("page", -4.0)
 			hud.dialog([Story.PLAQUES[depth - 1]])
@@ -1985,6 +2102,8 @@ func boss_phase(p: int) -> void:
 
 
 func _boss_fell(e) -> void:
+	main.bank(80)
+	main.tally("wardens")
 	boss_dead = true
 	light_target = 1.0
 	slow_t = 1.5
@@ -2218,7 +2337,7 @@ func _update_powers(dt: float) -> void:
 			for e in enemies:
 				if not e.dead and e.orbit_cd <= 0.0 and (e.center() - mp).length() < e.hit_r + 4.0:
 					e.orbit_cd = 0.45
-					e.hurt(7.0 * stats["power"], (e.center() - pc).normalized() * 50.0, Color(1.0, 0.7, 0.3))
+					e.hurt(7.0 * stats["power"] * stats["mote_k"], (e.center() - pc).normalized() * 50.0, Color(1.0, 0.7, 0.3))
 			for s in shots:
 				if not s["friendly"] and (s["pos"] - mp).length() < 6.0:
 					s["life"] = 0.0
