@@ -95,6 +95,34 @@ func run() -> void:
 	arena = _find_arena()
 	await w(2.0)
 
+	# --- The figures, and the camera turning round them ---
+	var d0 := _stage()
+	var pose_foe = _foe("husk", g.ppos + d0 * 40.0, 60.0)
+	pose_foe.stun = 7.0
+	cap("Real 3D", "Rigged, animated figures. The camera turns round Wren (middle-drag, or [ and ]) and the wheel zooms.", 7.5)
+	var v = g.view3d
+	var t0 := 0.0
+	while t0 < 4.5:
+		v.yaw_to = t0 / 4.5 * TAU
+		v.zoom_to = 1.0 - 0.35 * sin(t0 / 4.5 * PI)
+		await get_tree().process_frame
+		t0 += get_process_delta_time()
+	v.yaw_to = TAU
+	v.zoom_to = 1.0
+	_face(pose_foe)
+	g.atk_cd = 0.0
+	g.do_slash()
+	await w(0.4)
+	g.atk_cd = 0.0
+	g.do_slash()
+	await w(0.5)
+	g.atk_cd = 0.0
+	g.do_slash()
+	await w(1.0)
+	v.yaw = 0.0
+	v.yaw_to = 0.0
+	await brawl(4.0)
+
 	# --- Oil and fire ---
 	var d := _stage()
 	var pack: Array = []
