@@ -10,6 +10,7 @@ const View3DS = preload("res://scripts/view3d.gd")
 const SurfS = preload("res://scripts/surfaces.gd")
 const EchoS = preload("res://scripts/echo.gd")
 const Nemesis = preload("res://scripts/nemesis.gd")
+const MothS = preload("res://scripts/moth.gd")
 
 const TS := 16
 const AMBIENT := Color(0.14, 0.14, 0.23)
@@ -19,7 +20,7 @@ const MINI_WALL := Color(0.27, 0.24, 0.27, 0.95)
 const MINI_STAIRS := Color(0.4, 0.95, 1.0, 1.0)
 const DIRS := [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]
 const PROMPTS := {"chest": "Open", "lamp": "Light the wayside lamp", "page": "Read", "plaque": "Read the plaque",
-	"stairs": "Descend", "cage": "The latch", "relic": "Take the relic"}
+	"stairs": "Descend", "cage": "The latch", "relic": "Take the relic", "moth": "Offer the moth a drop of oil"}
 
 var main
 var hud
@@ -204,6 +205,14 @@ var echo_blows: Array = []
 var echo_cd := 0.0
 ## Whether the last blow Wren took came from her nemesis.
 var last_by_nem := false
+## Flit, the lamp moth, once befriended (moth.gd); null otherwise.
+var moth = null
+## Hollow walls: {"w": the false wall tile, "f": the floor before it,
+## "c": the middle of the room behind it, "open": bool}.
+var secrets: Array = []
+## Bumped whenever the walls change, so the 3D view rebuilds them.
+var map_rev := 0
+var map_theme := ""
 
 var bot := false
 var bot_manual := false
@@ -339,19 +348,11 @@ func load_floor(d: int, restore: Dictionary = {}) -> void:
 	tiles = dungeon["tiles"]
 	room_id = dungeon["room_id"]
 	exit_room = dungeon["exit_room"]
-
-	# The floor is painted once into a big image, then cut into chunks so that no
-	# single sprite is touched by more lights than the renderer allows.
-	var img: Image = Art.compose(tiles, W, H, info["theme"])
-	var chunk := 64
-	for cy in range(0, H * TS, chunk):
-		for cx in range(0, W * TS, chunk):
-			var r := Rect2i(cx, cy, mini(chunk, W * TS - cx), mini(chunk, H * TS - cy))
-			var s := Sprite2D.new()
-			s.centered = false
-			s.position = Vector2(cx, cy)
-			s.texture = ImageTexture.create_from_image(img.get_region(r))
-			map_root.add_child(s)
+	_carve_secrets()
+	if moth == null and d > 0 and d < Story.DEPTHS.size():
+		_place_wild_moth()
+	map_theme = info["theme"]
+	_paint_map()
 
 	var n := W * H
 	vis = PackedByteArray()
@@ -375,6 +376,12 @@ func load_floor(d: int, restore: Dictionary = {}) -> void:
 	mini_tex = ImageTexture.create_from_image(mini_img)
 	hud.set_map(mini_tex, W, H)
 
+	var opened := _ints(restore.get("secrets_open", []))
+	for i in secrets.size():
+		if opened.has(i):
+			open_secret(secrets[i], true)
+	if not opened.is_empty():
+		_paint_map()
 	var done := _ints(restore.get("done_props", []))
 	var gone := _ints(restore.get("dead_spawns", []))
 	var lamp_idx := int(restore.get("lamp_idx", -1))
@@ -414,6 +421,8 @@ func load_floor(d: int, restore: Dictionary = {}) -> void:
 			mini_tex.update(mini_img)
 
 	teleport(spawn_at)
+	if moth != null:
+		moth.position = ppos
 	snuffed = false
 	snuff_k = 0.0
 	echo_track.clear()
@@ -462,7 +471,9 @@ func save_game(lamp_idx: int) -> void:
 		"level": level, "xp_next": xp_next, "stats": stats.duplicate(), "boons": boons.duplicate(),
 		"powers": powers.duplicate(), "spare": spare_match, "match_used": match_used, "kills": kills,
 		"pages": pages, "run_time": run_time, "said": said.duplicate(), "done_props": done,
-		"dead_spawns": dead_spawns.duplicate(), "seen": Marshalls.raw_to_base64(seen)})
+		"dead_spawns": dead_spawns.duplicate(), "seen": Marshalls.raw_to_base64(seen),
+		"secrets_open": _opened_secrets(),
+		"moth": {} if moth == null else {"lv": moth.lv, "hp": moth.hp, "fed": moth.fed}})
 
 
 ## The lamps lit in the town above, at the start of each fresh descent.
@@ -521,6 +532,9 @@ func _apply_save(s: Dictionary) -> void:
 	pages = int(s["pages"])
 	run_time = float(s["run_time"])
 	said = (s["said"] as Dictionary).duplicate()
+	var m = s.get("moth", {})
+	if m is Dictionary and not m.is_empty():
+		_make_moth(int(m.get("lv", 1)), int(m.get("hp", 3)), int(m.get("fed", 0)))
 	if s.get("revive", false):
 		# Coming back from a death: the lamp sets you fully to rights.
 		hp = max_hp
@@ -557,7 +571,7 @@ func _restore_prop(p: Dictionary) -> void:
 			_light_lamp(p)
 		"plaque":
 			p["read"] = true
-		"urn", "page", "relic":
+		"urn", "page", "relic", "moth":
 			p["done"] = true
 			if p.has("light"):
 				lights.erase(p["light"])
@@ -663,9 +677,6 @@ func _add_prop(pd: Dictionary, idx: int = -1) -> void:
 		"urn":
 			s.texture = Art.tex["urn"]
 			_stand(s)
-		"chest":
-			s.texture = Art.tex["chest0"]
-			_stand(s)
 		"lamp":
 			s.texture = Art.tex["lamp0"]
 			_stand(s)
@@ -692,6 +703,16 @@ func _add_prop(pd: Dictionary, idx: int = -1) -> void:
 			s.texture = Art.tex["stairs"]
 			stairs_tile = pd["tile"]
 			p["glow"] = _glow(node, Color(1.0, 0.15, 0.1, 0.7), 0.5, Vector2.ZERO)
+		"moth":
+			s.texture = MothS.make_frames()[0]
+			s.material = Art.mat_unlit
+			s.position = Vector2(0, -14)
+			p["glow"] = _glow(s, Color(0.75, 0.85, 1.0, 0.45), 0.28, Vector2.ZERO)
+			p["light"] = _light(s, Color(0.8, 0.88, 1.0), 0.6, 0.6, Vector2.ZERO)
+		"chest":
+			s.texture = Art.tex["chest0"]
+			_stand(s)
+			p["secret"] = pd.get("secret", false)
 		"cage":
 			s.texture = Art.tex["cage"]
 			_stand(s)
@@ -1291,6 +1312,209 @@ func _spawn_echo() -> void:
 	main.tally("echoes")
 
 
+# --- Flit, and the hollow walls ------------------------------------------------------
+
+func _make_moth(lv: int, life: int, food: int) -> void:
+	if moth != null:
+		moth.queue_free()
+	moth = MothS.new()
+	over.add_child(moth)
+	moth.setup(self, lv, life, food)
+
+
+func moth_died(m) -> void:
+	fx.spark(m.position + m.body.position, Color(0.86, 0.92, 1.0), 24, 60.0, 1.0, 1.5, 40.0)
+	hud.say("Flit...?  Oh, Flit. No.", 4.0, hud.C_TEAL)
+	main.tally("flits_lost")
+	moth = null
+	var tw: Tween = m.create_tween()
+	tw.tween_property(m, "modulate:a", 0.0, 0.6)
+	tw.tween_callback(m.queue_free)
+	m.set_process(false)
+
+
+## A wild lamp moth somewhere on most floors (always on the first), well
+## away from the start, where it flutters by itself until fed.
+func _place_wild_moth() -> void:
+	var r := RandomNumberGenerator.new()
+	r.seed = floor_seed ^ 0x307
+	if depth > 1 and r.randf() > 0.5:
+		return
+	var start: Vector2i = dungeon["start"]
+	var pool: Array = []
+	for sd in dungeon["spawns"]:
+		var t: Vector2i = sd["tile"]
+		var dd := absi(t.x - start.x) + absi(t.y - start.y)
+		if sd["room"] != exit_room and dd > 8 and dd < 40:
+			pool.append(t)
+	if pool.is_empty():
+		return
+	var t: Vector2i = pool[r.randi() % pool.size()]
+	dungeon["props"].append({"type": "moth", "tile": t})
+
+
+## One hollow wall on each floor that has room for it: a single wall tile with
+## a small sealed room behind, and a chest in the room. Grown from the floor's
+## seed, so a reloaded floor has it in the same place. Walls on the far side
+## of a room (facing the camera) are preferred, so the 3D view can show them.
+func _carve_secrets() -> void:
+	secrets.clear()
+	if depth <= 0:
+		return
+	var r := RandomNumberGenerator.new()
+	r.seed = floor_seed ^ 0x5EC2
+	var start: Vector2i = dungeon["start"]
+	var best: Array = []
+	var other: Array = []
+	for y in range(1, H - 1):
+		for x in range(1, W - 1):
+			if tiles[y * W + x] != 0:
+				continue
+			for dir in DIRS:
+				var f: Vector2i = Vector2i(x, y) - dir
+				if f.x < 0 or f.y < 0 or f.x >= W or f.y >= H or tiles[f.y * W + f.x] != 1:
+					continue
+				if absi(f.x - start.x) + absi(f.y - start.y) < 6:
+					continue
+				var c: Vector2i = Vector2i(x, y) + dir * 2
+				var ok := true
+				for yy in range(c.y - 2, c.y + 3):
+					for xx in range(c.x - 2, c.x + 3):
+						if xx < 1 or yy < 1 or xx >= W - 1 or yy >= H - 1 or tiles[yy * W + xx] != 0:
+							ok = false
+				if not ok:
+					continue
+				var cand := {"w": Vector2i(x, y), "f": f, "c": c, "open": false}
+				if dir == Vector2i(0, -1):
+					best.append(cand)
+				else:
+					other.append(cand)
+	var pool: Array = best if not best.is_empty() else other
+	if pool.is_empty():
+		return
+	var sc: Dictionary = pool[r.randi() % pool.size()]
+	var c: Vector2i = sc["c"]
+	for yy in range(c.y - 1, c.y + 2):
+		for xx in range(c.x - 1, c.x + 2):
+			tiles[yy * W + xx] = 1
+			room_id[yy * W + xx] = -1
+	secrets.append(sc)
+	dungeon["props"].append({"type": "chest", "tile": c, "secret": true})
+
+
+func _opened_secrets() -> Array:
+	var out: Array = []
+	for i in secrets.size():
+		if secrets[i]["open"]:
+			out.append(i)
+	return out
+
+
+## The map painted into a big image, then cut into chunks so that no single
+## sprite is touched by more lights than the renderer allows.
+func _paint_map() -> void:
+	for c in map_root.get_children():
+		if c is Sprite2D:
+			c.queue_free()
+	var img: Image = Art.compose(tiles, W, H, map_theme)
+	var chunk := 64
+	for cy in range(0, H * TS, chunk):
+		for cx in range(0, W * TS, chunk):
+			var r := Rect2i(cx, cy, mini(chunk, W * TS - cx), mini(chunk, H * TS - cy))
+			var s := Sprite2D.new()
+			s.centered = false
+			s.position = Vector2(cx, cy)
+			s.texture = ImageTexture.create_from_image(img.get_region(r))
+			map_root.add_child(s)
+			map_root.move_child(s, 0)
+
+
+## A blow or a bolt that meets a hollow wall breaks it in.
+func _strike_wall(p: Vector2, pad: float) -> void:
+	var t := Vector2i(int(p.x / TS), int(p.y / TS))
+	for sc in secrets:
+		if not sc["open"] and (sc["w"] == t or (tile_center(sc["w"]) - p).length() < TS * 0.5 + pad):
+			open_secret(sc)
+
+
+func open_secret(sc: Dictionary, quiet: bool = false) -> void:
+	if sc["open"]:
+		return
+	sc["open"] = true
+	var w: Vector2i = sc["w"]
+	tiles[w.y * W + w.x] = 1
+	map_rev += 1
+	if quiet:
+		return
+	_paint_map()
+	_update_fov()
+	_update_flow()
+	var wc := tile_center(w)
+	fx.spark(wc + Vector2(0, -6), Color(0.6, 0.55, 0.5, 0.9), 26, 90.0, 0.7, 2.5, 160.0)
+	fx.spark(wc + Vector2(0, -6), Color(1.0, 0.8, 0.45), 10, 60.0, 0.5, 1.5)
+	scorch(wc, 10.0)
+	add_shake(5.0)
+	hitstop = maxf(hitstop, 0.08)
+	Sfx.play("boom", -6.0)
+	Sfx.play("thud", -2.0)
+	hud.say("The wall was hollow.", 3.0, hud.C_EMBER)
+	cine(3.6, 1.4, tile_center(sc["c"]))
+	main.tally("secrets")
+
+
+## For Flit: a hollow wall close by that it can flutter against, or INF.
+func secret_hint(_from: Vector2) -> Vector2:
+	for sc in secrets:
+		if sc["open"]:
+			continue
+		var fp := tile_center(sc["f"])
+		if (fp - ppos).length() < 120.0 and los(pcenter(), fp):
+			var w: Vector2 = tile_center(sc["w"])
+			return fp.lerp(w, 0.45)
+	return Vector2.INF
+
+
+## For Flit: the nearest floor Wren has not yet seen, within reach of her and
+## in the open from her (INF if there is none).
+func dark_tile_near(reach: float) -> Vector2:
+	var best := Vector2.INF
+	var bd := reach
+	var rt := int(reach / TS) + 1
+	for y in range(maxi(1, ptile.y - rt), mini(H - 1, ptile.y + rt + 1)):
+		for x in range(maxi(1, ptile.x - rt), mini(W - 1, ptile.x + rt + 1)):
+			var i := y * W + x
+			if tiles[i] != 1 or seen[i] == 1 or flow[i] >= 9999:
+				continue
+			var p := tile_center(Vector2i(x, y))
+			var d := (p - ppos).length()
+			if d < bd:
+				bd = d
+				best = p
+	return best
+
+
+## Flit's light: the floor around it, as far as it can see, comes out of the dark.
+func reveal_around(p: Vector2, r: int) -> void:
+	var c := Vector2i(int(p.x / TS), int(p.y / TS))
+	var dirty := false
+	for y in range(maxi(0, c.y - r), mini(H, c.y + r + 1)):
+		for x in range(maxi(0, c.x - r), mini(W, c.x + r + 1)):
+			var i := y * W + x
+			if vis[i] == 1:
+				continue
+			var tp := tile_center(Vector2i(x, y))
+			if tiles[i] == 1 and not los(p, tp):
+				continue
+			vis[i] = 1
+			vis_list.append(i)
+			if seen[i] == 0:
+				seen[i] = 1
+				mini_img.set_pixel(x, y, MINI_FLOOR if tiles[i] == 1 else MINI_WALL)
+				dirty = true
+	if dirty:
+		mini_tex.update(mini_img)
+
+
 # --- The nemesis ------------------------------------------------------------------
 
 ## The named foe waits on the floor after it last put Wren out, and now and
@@ -1446,6 +1670,12 @@ func do_slash() -> void:
 		var v: Vector2 = s["pos"] - o
 		if v.length() < reach + 4.0 and absf(aim.angle_to(v)) < arc * 0.5 + 0.2:
 			_reflect(s)
+	for sc in secrets:
+		if not sc["open"]:
+			var wc: Vector2 = tile_center(sc["w"])
+			var v: Vector2 = wc - o
+			if v.length() < reach + 9.0 and absf(aim.angle_to(v)) < arc * 0.5 + 0.3:
+				open_secret(sc)
 	if heavy and stats["wave"] > 0.0:
 		add_shot(o + aim * 10.0, aim * 200.0, true, dmg * 0.6 * stats["wave"], Color(1.0, 0.92, 0.7), 99, 0.75, 0.55)
 	pvel += aim * (75.0 if heavy else 40.0)
@@ -1903,6 +2133,8 @@ func _update_shots(dt: float) -> void:
 		s["life"] -= dt
 		var pos: Vector2 = s["pos"]
 		var gone: bool = s["life"] <= 0.0 or solid_at(pos)
+		if gone and s["friendly"] and s["life"] > 0.0:
+			_strike_wall(pos, 2.0)
 		if not gone and s["friendly"]:
 			# Ember fire: a bolt that crosses oil or web sets it alight.
 			surf.ignite_at(pos, 3.0)
@@ -1929,6 +2161,9 @@ func _update_shots(dt: float) -> void:
 			for p in props:
 				if p["type"] == "urn" and not p["done"] and (p["pos"] - pos).length() < 8.0:
 					_break_urn(p)
+		elif not gone and moth != null and (moth.position + moth.body.position - pos).length() < 5.0:
+			moth.hurt()
+			gone = true
 		elif not gone and (pcenter() - pos).length() < 5.0:
 			last_by_nem = s.get("nem", false)
 			if hurt_player(s["dmg"], pos - s["vel"] * 0.1, 130.0, s.get("src", "")):
@@ -1977,6 +2212,8 @@ func _update_pickups(dt: float) -> void:
 				"oil":
 					oil = minf(max_oil, oil + 35.0)
 					Sfx.play("oil")
+					if moth != null:
+						moth.feed()
 					hud.float_text(ppos + Vector2(0, -18), "+oil", Color(1.0, 0.7, 0.25))
 			node.queue_free()
 			pickups.remove_at(i)
@@ -2150,6 +2387,11 @@ func _update_props(dt: float) -> void:
 				p["glow"].modulate.a = 0.4 + 0.15 * sin(t * 3.0)
 			"plaque":
 				p["glow"].modulate.a = 0.22 + 0.1 * sin(t * 2.0)
+			"moth":
+				# Fluttering about its own small light.
+				p["spr"].position = Vector2(sin(t * 2.3) * 5.0, -14.0 + sin(t * 3.7) * 3.0)
+				p["spr"].texture = MothS.make_frames()[int(t * 12.0) % 2]
+				p["spr"].flip_h = cos(t * 2.3) < 0.0
 			"stairs":
 				p["glow"].visible = sealed
 				p["glow"].modulate.a = 0.55 + 0.2 * sin(t * 4.0)
@@ -2195,6 +2437,12 @@ func interact() -> void:
 				drop("heart", pos + Vector2(0, 4))
 			if rng.randf() < 0.6:
 				drop("oil", pos + Vector2(0, 4))
+			if p.get("secret", false):
+				# A hollow-wall hoard: a heart for certain, and embers for the town.
+				drop("heart", pos + Vector2(4, 4))
+				drop("cinder", pos + Vector2(0, 4), 10)
+				main.bank(25)
+				hud.say("A hoard behind the wall. (+25 embers)", 3.5, hud.C_EMBER)
 		"lamp":
 			if main.has_lamp("maren"):
 				hp = max_hp
@@ -2212,9 +2460,25 @@ func interact() -> void:
 				Sfx.play("whoomp", -4.0)
 				fx.spark(pos + Vector2(0, -14), Color(1.0, 0.85, 0.45), 24, 80.0, 0.7, 2.0)
 				hud.say("The wayside lamp catches. Wounds ease, the flask fills, and your descent is saved.", 4.5, hud.C_EMBER)
+				if moth != null:
+					moth.feed(2)
 				_say_once("lamp", "\"Light every one you pass,\" she used to say. \"Somebody's always behind you.\"")
 			cine(3.9, 1.2, pos + Vector2(0, -8))
 			save_game(p["idx"])
+		"moth":
+			if oil < 10.0:
+				hud.float_text(ppos + Vector2(0, -26), "NO OIL", Color(0.8, 0.6, 0.4))
+				return
+			oil -= 10.0
+			p["done"] = true
+			lights.erase(p["light"])
+			p["node"].queue_free()
+			_make_moth(1, 3, 0)
+			moth.position = pos + Vector2(0, -14)
+			Sfx.play("chime", -4.0)
+			fx.spark(pos + Vector2(0, -14), Color(0.85, 0.92, 1.0), 14, 40.0, 0.7, 1.5)
+			hud.say("The moth drinks, and settles on the lantern. Wren calls it Flit.", 4.5, hud.C_TEAL)
+			main.tally("flits")
 		"page":
 			p["done"] = true
 			p["node"].queue_free()
@@ -2341,6 +2605,12 @@ func _update_events(dt: float) -> void:
 		if levelup_t < 0.0:
 			_level_up()
 			return
+	# In the 3D view a hollow wall leaks light; the first one seen, Wren says so.
+	if view3d != null and view3d.active and not said.has("hollow"):
+		for sc in secrets:
+			var f: Vector2i = sc["f"]
+			if not sc["open"] and vis[f.y * W + f.x] == 1 and (tile_center(f) - ppos).length() < 110.0:
+				_say_once("hollow", "Light through the cracks. That wall's hollow.")
 	if boss != null and not boss_started and (boss.position - ppos).length() < 105.0:
 		boss_started = true
 		hud.dialog(Story.BOSS_RETRY if main.boss_seen else Story.BOSS_INTRO, _boss_begin)

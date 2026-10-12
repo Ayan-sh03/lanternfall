@@ -254,6 +254,59 @@ func run() -> void:
 	_hold(g.ppos, 4.5, 3.6)
 	await w(5.0)
 
+	# --- Flit ---
+	g.hud.say_q.clear()
+	var mp: Dictionary = _prop("moth")
+	if not mp.is_empty() and not mp["done"]:
+		g.teleport(mp["pos"] + Vector2(-22, 12))
+		cap("A friend in the dark", "A wild lamp moth. Offer it a drop of oil and it stays.", 6.0)
+		_hold(mp["pos"] + Vector2(-8, -6), 4.0, 3.9)
+		await w(2.5)
+		g.near_prop = mp
+		g.interact()
+		await w(3.0)
+		cap("Flit", "It circles the lantern, flies off to light the corners Wren has not seen, and bites once it has grown", 7.0)
+		g.moth.feed(2)
+		await w(1.0)
+		var d2 := _clear_dir(60.0)
+		var bait = _foe("husk", g.ppos + d2 * 40.0, 60.0)
+		bait.stun = 6.0
+		g.moth.nip_cd = 0.0
+		await w(5.0)
+		await brawl(4.0)
+
+	# --- A hollow wall ---
+	if not g.secrets.is_empty():
+		var sc: Dictionary = g.secrets[0]
+		var fp: Vector2 = g.tile_center(sc["f"])
+		var back: Vector2 = fp + (fp - g.tile_center(sc["w"])) * 2.5
+		g.teleport(back if not g.solid_at(back) else fp)
+		g.hud.say_q.clear()
+		cap("Hollow walls", "In 3D, light seeps through the cracks of a hollow wall. In the flat view, only Flit finds them.", 7.0)
+		_hold(g.tile_center(sc["w"]) + Vector2(0, 10), 5.0, 3.8)
+		await w(4.0)
+		var t2 := 0.0
+		while t2 < 3.0 and (g.ppos - fp).length() > 6.0:
+			g.bot_mv = (fp - g.ppos).normalized()
+			await get_tree().process_frame
+			t2 += get_process_delta_time()
+		g.bot_mv = Vector2.ZERO
+		g.aim = (g.tile_center(sc["w"]) - g.pcenter()).normalized()
+		g.atk_cd = 0.0
+		g.combo_t = 0.0
+		g.do_slash()
+		await w(2.0)
+		var chest: Dictionary = {}
+		for p in g.props:
+			if p["type"] == "chest" and p.get("secret", false):
+				chest = p
+		if not chest.is_empty():
+			cap("A hoard", "Something put away for a lamplighter who looked closely", 5.0)
+			await walk_to(chest["pos"] + Vector2(0, 12), 4.0, false)
+			g.near_prop = chest
+			g.interact()
+			await w(3.5)
+
 	cap("New deeds", "Grudge Settled, Oil and Ember, Out of the Dark, Twice Over", 3.5)
 	await w(0.6)
 	main.hud.show_deeds()

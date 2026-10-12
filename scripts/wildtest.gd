@@ -243,6 +243,87 @@ func run() -> void:
 	tgt.dead = true
 	tgt.visible = false
 
+	# --- Flit, the lamp moth ---
+	await clear_foes(g)
+	var mp = null
+	for p in g.props:
+		if p["type"] == "moth" and not p["done"]:
+			mp = p
+	check(mp != null and g.moth == null, "a wild lamp moth flutters on the first floor")
+	if mp != null:
+		g.teleport(mp["pos"] + Vector2(0, 14))
+		await w(0.4)
+		g.oil = g.max_oil
+		g.near_prop = mp
+		g.interact()
+		check(g.moth != null and g.oil < g.max_oil - 9.0, "a drop of oil and it stays (oil %.0f)" % g.oil)
+		await w(1.0)
+		await at.shot("w_flit")
+		g.moth.feed(2)
+		check(g.moth.lv == 2, "fed, it grows (level %d)" % g.moth.lv)
+		var dd: Vector2 = open_dir(g, 50.0)
+		var bitten = foe(g, "husk", g.ppos + dd * 30.0)
+		bitten.awake = true
+		bitten.stun = 99.0
+		g.moth.nip_cd = 0.0
+		await w(3.0)
+		check(bitten.hp < 999.0, "grown, it bites what comes near (hp %.0f)" % bitten.hp)
+		bitten.dead = true
+		bitten.visible = false
+		var mhp: int = g.moth.hp
+		# Held still over open floor for the shot: it never stops circling otherwise.
+		g.moth.set_process(false)
+		g.moth.position = g.ppos + Vector2(0, 6)
+		g.moth.body.position = Vector2(0, -12)
+		g.add_shot(g.moth.position + g.moth.body.position + Vector2(-6, 0), Vector2(60, 0), false, 1, Color(1.0, 0.3, 0.75))
+		await w(0.4)
+		check(g.moth == null or g.moth.hp < mhp, "a hex can hit it")
+		if g.moth != null:
+			g.moth.set_process(true)
+		g.save_game(-1)
+		var sv: Dictionary = main.read_save(9)
+		check(g.moth != null and int(sv.get("moth", {}).get("lv", 0)) == 2, "it is kept in the save")
+		if g.moth != null:
+			g.moth.hp = 1
+			g.moth.hurt()
+		await w(0.3)
+		check(g.moth == null, "and it can be lost")
+
+	# --- A hollow wall ---
+	check(g.secrets.size() == 1, "the floor has a hollow wall (%d)" % g.secrets.size())
+	if g.secrets.size() == 1:
+		var sc: Dictionary = g.secrets[0]
+		var wt: Vector2i = sc["w"]
+		var ct: Vector2i = sc["c"]
+		check(g.tiles[wt.y * g.W + wt.x] == 0 and g.tiles[ct.y * g.W + ct.x] == 1, "a sealed room behind a wall")
+		var hoard := false
+		for p in g.props:
+			if p["type"] == "chest" and p.get("secret", false):
+				hoard = true
+		check(hoard, "with a chest in it")
+		var fp: Vector2 = g.tile_center(sc["f"])
+		var back: Vector2 = fp + (fp - g.tile_center(wt)) * 2.0
+		g.teleport(back if not g.solid_at(back) else fp)
+		g.cam_script = true
+		g.cam.zoom = Vector2(3.4, 3.4)
+		await w(0.8)
+		await at.shot("w_crack")
+		var rev: int = g.map_rev
+		g.teleport(fp)
+		await w(0.3)
+		g.aim = (g.tile_center(wt) - g.pcenter()).normalized()
+		g.atk_cd = 0.0
+		g.combo_t = 0.0
+		g.do_slash()
+		await w(0.3)
+		check(sc["open"] and g.tiles[wt.y * g.W + wt.x] == 1 and g.map_rev > rev, "a blow breaks it in")
+		check(g.flow[ct.y * g.W + ct.x] < 9999, "and the room behind can be walked into")
+		await w(1.2)
+		await at.shot("w_hollow")
+		g.save_game(-1)
+		var sv2: Dictionary = main.read_save(9)
+		check((sv2.get("secrets_open", []) as Array).size() == 1, "a broken wall stays broken in the save")
+
 	# --- The nemesis ---
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 7

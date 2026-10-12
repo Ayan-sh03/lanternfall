@@ -272,5 +272,7 @@ const FEATS := [
 	{"id": "ignite", "name": "Oil and Ember", "desc": "Set twenty pools of oil alight.", "stat": "ignites", "goal": 20, "reward": 30},
 	{"id": "ambush", "name": "Out of the Dark", "desc": "Strike ten foes that lost you in the dark.", "stat": "ambushes", "goal": 10, "reward": 30},
 	{"id": "echo", "name": "Twice Over", "desc": "Land fifty blows with your echo.", "stat": "echo_hits", "goal": 50, "reward": 30},
+	{"id": "flit", "name": "A Friend in the Dark", "desc": "Feed a lamp moth, and keep it.", "stat": "flits", "goal": 1, "reward": 20},
+	{"id": "hollow", "name": "Hollow Walls", "desc": "Break into three hidden rooms.", "stat": "secrets", "goal": 3, "reward": 40},
 	{"id": "lamps", "name": "The Street Remembers", "desc": "Light every lamp in town.", "stat": "town", "goal": 9, "reward": 0},
 ]

@@ -214,6 +214,12 @@ var env: WorldEnvironment
 var map_node: Node3D
 var built_seed := -1
 var built_depth := -99
+var built_rev := -1
+## The light leaking out of hollow walls: cracks drawn every frame, and a
+## lamp inside each sealed room that only this view has.
+var crack_mesh := ImmediateMesh.new()
+var crack_inst: MeshInstance3D
+var secret_lights: Array = []
 var quad := QuadMesh.new()
 var sprites := {}
 var lights := {}
@@ -280,6 +286,11 @@ func _ready() -> void:
 	decal_inst.material_override = _mat("fx_mix", FX_MIX)
 	decal_inst.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(decal_inst)
+	crack_inst = MeshInstance3D.new()
+	crack_inst.mesh = crack_mesh
+	crack_inst.material_override = _mat("fx_add", FX_ADD)
+	crack_inst.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(crack_inst)
 	surf_inst = MeshInstance3D.new()
 	surf_inst.mesh = surf_mesh
 	surf_inst.material_override = _mat("surf", SURF)
@@ -356,7 +367,7 @@ func mouse_world() -> Vector2:
 func _process(_dt: float) -> void:
 	if not active or game == null or game.W == 0:
 		return
-	if game.floor_seed != built_seed or game.depth != built_depth:
+	if game.floor_seed != built_seed or game.depth != built_depth or game.map_rev != built_rev:
 		_build_map()
 	RenderingServer.global_shader_parameter_set("lf_player", to3(game.ppos))
 	_update_camera()
@@ -383,6 +394,7 @@ func _process(_dt: float) -> void:
 		_draw_decals()
 	if game.surf.version != surf_v:
 		_draw_surfaces()
+	_draw_cracks()
 
 
 func _sweep(pool: Dictionary) -> void:
@@ -544,6 +556,23 @@ func _update_camera() -> void:
 func _build_map() -> void:
 	built_seed = game.floor_seed
 	built_depth = game.depth
+	built_rev = game.map_rev
+	for l in secret_lights:
+		l.queue_free()
+	secret_lights.clear()
+	for sc in game.secrets:
+		if sc["open"]:
+			continue
+		var c: Vector2i = sc["c"]
+		var l := OmniLight3D.new()
+		l.light_color = Color(1.0, 0.7, 0.35)
+		l.light_energy = 2.0
+		l.omni_range = 3.8
+		l.omni_attenuation = 1.3
+		l.light_specular = 0.0
+		l.position = Vector3(c.x + 0.5, WALL_H + 0.3, c.y + 0.5)
+		add_child(l)
+		secret_lights.append(l)
 	for c in map_node.get_children():
 		c.queue_free()
 	var info: Dictionary = Story.GALLERY if game.depth <= 0 else Story.DEPTHS[game.depth - 1]
@@ -1037,3 +1066,56 @@ func _strand(m: ImmediateMesh, a: Vector2, b: Vector2, w: float, col: Color, h: 
 	for v in [p0, p1, p2, p0, p2, p3]:
 		m.surface_set_color(col)
 		m.surface_add_vertex(v)
+
+
+## A hollow wall shows itself here and nowhere else: light seeps through a
+## jagged crack in the face toward the room, and glows above the sealed room.
+func _draw_cracks() -> void:
+	crack_mesh.clear_surfaces()
+	var any := false
+	var t: float = game.anim_t
+	for k in secret_lights.size():
+		secret_lights[k].light_energy = 1.8 + 0.5 * sin(t * 2.1 + k)
+	for sc in game.secrets:
+		if sc["open"]:
+			continue
+		var f: Vector2i = sc["f"]
+		if game.seen[f.y * game.W + f.x] == 0:
+			continue
+		if not any:
+			crack_mesh.surface_begin(Mesh.PRIMITIVE_TRIANGLES)
+			any = true
+		var w: Vector2i = sc["w"]
+		var d: Vector2i = f - w
+		# The face of the wall tile that looks onto the floor before it.
+		var mid := Vector3(w.x + 0.5 + d.x * 0.51, 0.0, w.y + 0.5 + d.y * 0.51)
+		var along := Vector3(absf(d.y), 0, absf(d.x))
+		var r := RandomNumberGenerator.new()
+		r.seed = w.x * 7919 + w.y
+		var pulse := 0.75 + 0.25 * sin(t * 2.1)
+		var col := Color(1.0, 0.68, 0.3, 0.9 * pulse)
+		var p := mid + along * r.randf_range(-0.15, 0.15)
+		var steps := 7
+		for i in steps:
+			var q := mid + along * r.randf_range(-0.3, 0.3) + Vector3(0, WALL_H * (i + 1) / steps, 0)
+			_crack_seg(p, q, along, 0.055, col)
+			_crack_seg(p, q, along, 0.14, Color(col.r, col.g * 0.8, col.b * 0.6, col.a * 0.25))
+			if r.randf() < 0.45:
+				var br := q + along * r.randf_range(-0.25, 0.25) + Vector3(0, -0.15, 0)
+				_crack_seg(q, br, along, 0.02, Color(col.r, col.g, col.b, col.a * 0.7))
+			p = q
+		# A soft spill of light on the floor at its foot.
+		var foot := Vector2((mid.x + d.x * 0.1) * TS, (mid.z + d.y * 0.1) * TS)
+		var cc := to3(foot) + Vector3(0, 0.03, 0)
+		for i in 12:
+			var a0 := TAU * i / 12
+			var a1 := TAU * (i + 1) / 12
+			_tri(crack_mesh, cc, cc + Vector3(cos(a0), 0, sin(a0)) * 0.45, cc + Vector3(cos(a1), 0, sin(a1)) * 0.45,
+				Color(1.0, 0.6, 0.25, 0.12 * pulse))
+	if any:
+		crack_mesh.surface_end()
+
+
+func _crack_seg(a: Vector3, b: Vector3, along: Vector3, wdt: float, col: Color) -> void:
+	var o := along * wdt
+	_quad_fx(crack_mesh, a - o, b - o, b + o, a + o, col)

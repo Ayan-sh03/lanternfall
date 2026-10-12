@@ -561,6 +561,8 @@ func progress_test() -> void:
 		if g.los(g.pcenter(), g.pcenter() + cand * 100.0):
 			dir = cand
 			break
+	# No puddle underfoot to put the fire out.
+	g.surf.clear()
 	var a = g.spawn_enemy("husk", g.ppos + dir * 60.0, 0)
 	var b = g.spawn_enemy("husk", g.ppos + dir * 74.0, 0)
 	for e in [a, b]:
