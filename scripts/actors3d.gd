@@ -195,18 +195,37 @@ func _give_staff(sk: Skeleton3D) -> void:
 		att.add_child(holder)
 		for c in src.get_children():
 			holder.add_child(c.duplicate())
+		# A small lantern: a glowing glass body between dark iron caps.
 		var lantern := MeshInstance3D.new()
-		var bm := BoxMesh.new()
-		bm.size = Vector3(0.24, 0.3, 0.24)
-		lantern.mesh = bm
+		var glass := CylinderMesh.new()
+		glass.top_radius = 0.1
+		glass.bottom_radius = 0.1
+		glass.height = 0.24
+		glass.radial_segments = 8
+		lantern.mesh = glass
 		var lm := StandardMaterial3D.new()
-		lm.albedo_color = Color(0.25, 0.18, 0.1)
+		lm.albedo_color = Color(0.3, 0.2, 0.1)
 		lm.emission_enabled = true
 		lm.emission = Color(1.0, 0.68, 0.3)
 		lm.emission_energy_multiplier = 2.5
 		lantern.material_override = lm
 		lantern.position = Vector3(0.0, 1.32, 0.0)
 		lantern.name = "Lantern"
+		var iron := StandardMaterial3D.new()
+		iron.albedo_color = Color(0.12, 0.1, 0.09)
+		iron.metallic = 0.7
+		iron.roughness = 0.45
+		for cy in [0.14, -0.14]:
+			var cap := MeshInstance3D.new()
+			var cm := CylinderMesh.new()
+			cm.top_radius = 0.07 if cy > 0 else 0.13
+			cm.bottom_radius = 0.13 if cy > 0 else 0.09
+			cm.height = 0.07
+			cm.radial_segments = 8
+			cap.mesh = cm
+			cap.material_override = iron
+			cap.position = Vector3(0, cy, 0)
+			lantern.add_child(cap)
 		holder.add_child(lantern)
 	tmp.free()
 
@@ -295,6 +314,18 @@ func _face(a: Dictionary, dir: Vector2, dt: float, rate: float = 14.0) -> void:
 
 func _flash(a: Dictionary, k: float, col: Color = Color(1, 1, 1)) -> void:
 	a["ov"].set_shader_parameter("col", Color(col.r, col.g, col.b, clampf(k, 0.0, 1.0) * (0.22 if view.aaa else 0.45)))
+
+
+## Where the lantern on Wren's staff is, in the world (for her light to come from).
+func lantern_pos() -> Vector3:
+	var a: Dictionary = actors.get(0, {})
+	if a.is_empty():
+		return Vector3.INF
+	var l: Node3D = a.get("lantern")
+	if l == null:
+		l = a["model"].find_child("Lantern", true, false)
+		a["lantern"] = l
+	return l.global_position if l != null else Vector3.INF
 
 
 func _wren(a: Dictionary, dt: float) -> void:

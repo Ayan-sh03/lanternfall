@@ -642,6 +642,11 @@ func _process(dt: float) -> void:
 		_walk(node, ground, r[1], Color.WHITE, 0)
 	_sweep(sprites)
 	_sweep(lights)
+	# Wren's light comes from the lantern itself, so it swings with the staff.
+	if models_on and shadow_light != null:
+		var lp: Vector3 = actors.lantern_pos()
+		if lp != Vector3.INF:
+			shadow_light.position = shadow_light.position.lerp(lp + Vector3(0, 0.05, 0), 0.6)
 	_draw_fx()
 	if game.decals.size() != decal_n:
 		_draw_decals()
