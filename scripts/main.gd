@@ -9,6 +9,7 @@ const Story = preload("res://scripts/story.gd")
 const AutoS = preload("res://scripts/autotest.gd")
 const ShowS = preload("res://scripts/showcase.gd")
 const Nemesis = preload("res://scripts/nemesis.gd")
+const Title3DS = preload("res://scripts/title3d.gd")
 
 const SLOTS := 3
 
@@ -46,6 +47,8 @@ var perf_bad := 0
 ## carries the "view3d" feature), the classic ones flat; --3d and --2d choose
 ## when running from source, and F3 switches either way, live.
 var use_3d := false
+## The 3D hall behind the title menu (title3d.gd), while it is showing.
+var title3d = null
 
 
 func _ready() -> void:
@@ -99,6 +102,9 @@ func _input(ev: InputEvent) -> void:
 			use_3d = not use_3d
 			if game != null and game.view3d != null:
 				game.view3d.set_active(use_3d)
+			elif game == null and hud.modal == "title":
+				title_scene(true)
+				hud.show_title()
 		elif ev.physical_keycode == KEY_M:
 			profile["sound"] = not profile["sound"]
 			apply_options()
@@ -405,7 +411,21 @@ func start_run() -> void:
 	hud.show_cards(Story.INTRO, func(): hud.fade_through(func(): new_game(1)))
 
 
+## Puts the 3D hall behind the title in the 3D builds, or takes it away.
+func title_scene(on: bool) -> void:
+	var want: bool = on and use_3d and game == null and DisplayServer.get_name() != "headless"
+	if want and title3d == null:
+		title3d = Title3DS.new()
+		title3d.main = self
+		add_child(title3d)
+		move_child(title3d, 0)
+	elif not want and title3d != null:
+		title3d.queue_free()
+		title3d = null
+
+
 func new_game(depth: int, restore: Dictionary = {}, prepared: bool = false) -> void:
+	title_scene(false)
 	_drop_game()
 	run_embers = 0
 	game = GameS.new()

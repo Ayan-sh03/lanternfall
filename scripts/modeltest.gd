@@ -74,6 +74,18 @@ func run() -> void:
 	if OS.get_cmdline_user_args().has("--tour"):
 		await tour()
 		return
+	if OS.get_cmdline_user_args().has("--title"):
+		main.use_3d = true
+		main.hud.show_title()
+		await w(4.0)
+		check(main.title3d != null or DisplayServer.get_name() == "headless", "the title stands in a 3D hall")
+		await at.shot("title3d")
+		main.new_game(1)
+		await w(1.0)
+		check(main.title3d == null, "and the hall is gone once the descent begins")
+		print("MODEL %s" % ("PASS" if fails == 0 else "FAIL %d" % fails))
+		get_tree().quit(1 if fails > 0 else 0)
+		return
 	main.slot = 9
 	main.use_3d = true
 	await w(0.5)

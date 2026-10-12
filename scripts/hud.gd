@@ -555,6 +555,7 @@ func _fade_mid() -> void:
 # --- Title ----------------------------------------------------------------------
 
 func show_title() -> void:
+	main.title_scene(true)
 	var vb := _modal("title", Color.BLACK, "title")
 	vb.add_theme_constant_override("separation", 4)
 	var title := _lbl("LANTERNFALL", 120, C_EMBER, _spaced(font_t, 8), 14)
@@ -630,6 +631,15 @@ func _draw_backdrop(c: Control, kind: String) -> void:
 	var cx := sz.x * 0.5
 	if kind == "dawn":
 		_draw_dawn(c, sz, glow)
+		return
+	if kind == "title" and main.title3d != null:
+		# The 3D hall shows through: only darken the edges so the menu reads.
+		var clear := Color(0, 0, 0, 0)
+		var dk := Color(0.0, 0.0, 0.02, 0.85)
+		c.draw_polygon(PackedVector2Array([Vector2(0, 0), Vector2(sz.x, 0), Vector2(sz.x, sz.y * 0.32), Vector2(0, sz.y * 0.32)]),
+			PackedColorArray([dk, dk, clear, clear]))
+		c.draw_polygon(PackedVector2Array([Vector2(0, sz.y * 0.55), Vector2(sz.x, sz.y * 0.55), Vector2(sz.x, sz.y), Vector2(0, sz.y)]),
+			PackedColorArray([clear, clear, dk, dk]))
 		return
 	c.draw_rect(Rect2(Vector2.ZERO, sz), Color(0.015, 0.012, 0.03))
 	if kind == "title":
