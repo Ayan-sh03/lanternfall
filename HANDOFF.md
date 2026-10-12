@@ -78,7 +78,7 @@ The game rules still run entirely in 2D (`game.gd`, `enemy.gd`, 16 px tiles). Th
 | System | Where |
 |---|---|
 | Oil, fire, webs, water | `surfaces.gd` |
-| Snuff and flare | `snuff()`, `relight()`, `_flare()`; enemy `lost` / `seen_at` |
+| Snuff and flare | `snuff()`, `relight()`, `_flare()`; enemy `lost` / `seen_at`; the HUD fades with `snuff_k` (`hud._process`) |
 | Echo | `echo.gd`, `_spawn_echo()`, `_record_echo()` |
 | Nemesis | `nemesis.gd`, `_place_nemesis()`, `nemesis_woke()`, `_nemesis_fell()`; `profile["nemesis"]` |
 | Flit | `moth.gd`, `_place_wild_moth()`, `_make_moth()`; saved in the save game |
@@ -90,7 +90,6 @@ The game rules still run entirely in 2D (`game.gd`, `enemy.gd`, 16 px tiles). Th
 2. **Tuning on a real GPU:** lighting was tuned on a software renderer (lavapipe). Check brightness and haze; see `_grade()`, `MOODS`, and the light multipliers in `_mirror_light()` and `_torch()`.
 3. **Mobile:** the Android 3D build runs on the Compatibility renderer and has not been performance-tested with the models on a phone.
 4. **Not built yet:**
-   - The dark eating the HUD.
    - A restyled HUD.
    - A 3D look for the town screen.
    - (Done: the title shows the nemesis in the archway and names it, and Flit circles the lantern when the latest save has her; `title3d._nemesis()`, `_flit()`.)

@@ -1355,6 +1355,13 @@ func _process(dt: float) -> void:
 	flash_rect.color.a = flash_w * 0.2
 	flash_rect.visible = flash_w > 0.01 and in_game
 	hud_group.visible = in_game
+	# With the lamp snuffed the dark eats the HUD too: the map and gauges fade
+	# to a ghost of themselves, and come back as the lamp is relit.
+	var gone: float = clampf(game.snuff_k, 0.0, 1.0) * 0.72 if in_game else 0.0
+	var m := Color(1.0 - gone * 0.4, 1.0 - gone * 0.4, 1.0 - gone * 0.25, 1.0 - gone)
+	for c in [mini_bg, mini, hud_c, depth_lbl, hint_lbl]:
+		if c != null:
+			c.modulate = m
 
 	for e in embers:
 		var p: Vector2 = e["p"]

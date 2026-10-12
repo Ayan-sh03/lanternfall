@@ -163,6 +163,7 @@ func run() -> void:
 	g.teleport(g.ppos + d.orthogonal() * 24.0 if not g.solid_at(g.ppos + d.orthogonal() * 24.0) else g.ppos - d.orthogonal() * 24.0)
 	await w(0.6)
 	check(g.plight.texture_scale < lit_r * 0.5, "snuffing shrinks the light (%.2f -> %.2f)" % [lit_r, g.plight.texture_scale])
+	check(g.hud.hud_c.modulate.a < 0.5, "and the dark eats the HUD (%.2f)" % g.hud.hud_c.modulate.a)
 	check(hu.lost or (hu.position - g.ppos).length() < 46.0, "a foe that cannot see her loses her (lost %s)" % hu.lost)
 	await at.shot("w_snuffed")
 	# Out of the dark, on a foe that has lost her: never sees it coming.
@@ -186,6 +187,8 @@ func run() -> void:
 	check(hu.stun > 1.0 and not g.snuffed, "relighting flares and dazzles (stun %.2f)" % hu.stun)
 	await frames(3)
 	await at.shot("w_flare")
+	await w(0.5)
+	check(g.hud.hud_c.modulate.a > 0.95, "and the HUD comes back with the light (%.2f)" % g.hud.hud_c.modulate.a)
 	hu.dead = true
 	hu.visible = false
 	# Hide too long and the dark sends its shades, full flask or not.
