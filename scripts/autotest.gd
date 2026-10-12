@@ -986,6 +986,11 @@ func run() -> void:
 		add_child(mt)
 		mt.run()
 		return
+	if OS.get_cmdline_user_args().has("--aaareel"):
+		var ar = load("res://scripts/aaareel.gd").new()
+		ar.main = main
+		add_child(ar)
+		return
 	if OS.get_cmdline_user_args().has("--wildreel"):
 		var wr = load("res://scripts/wildreel.gd").new()
 		wr.main = main
