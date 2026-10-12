@@ -93,5 +93,5 @@ The game rules still run entirely in 2D (`game.gd`, `enemy.gd`, 16 px tiles). Th
    - The dark eating the HUD.
    - A restyled HUD.
    - A 3D look for the town screen.
-   - Flit visible on the title (the nemesis now waits there, in `title3d._nemesis()`).
+   - (Done: the title shows the nemesis in the archway and names it, and Flit circles the lantern when the latest save has her; `title3d._nemesis()`, `_flit()`.)
 5. **Balance:** first guesses for flask cost (20), flare cooldown (5 s), echo damage (50%), gloams while snuffed, nemesis HP and payout, and Flit's bite.

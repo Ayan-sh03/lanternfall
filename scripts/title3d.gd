@@ -22,6 +22,8 @@ var nem: Node3D
 var nem_y := 0.0
 var nem_light: OmniLight3D
 var bat_wings: Array = []
+## Flit, if the latest save has her: she circles Wren's lantern.
+var flit: Dictionary = {}
 
 
 func _ready() -> void:
@@ -91,6 +93,7 @@ func _ready() -> void:
 		if k["ap"] != null:
 			k["ap"].play("Skeleton_Inactive_Standing_Pose")
 	_nemesis()
+	_flit()
 	# Figure light: a rim from behind so Wren stands out against the hall.
 	var rim := DirectionalLight3D.new()
 	rim.light_cull_mask = 2
@@ -159,6 +162,25 @@ func _nemesis() -> void:
 	l.position = Vector3(0.8, 0.25, -1.5)
 	add_child(l)
 	nem_light = l
+
+
+func _flit() -> void:
+	if main == null:
+		return
+	var i: int = main.latest_slot()
+	if i < 0:
+		return
+	var m = main.read_save(i).get("moth", {})
+	if not (m is Dictionary) or m.is_empty():
+		return
+	flit = CreaturesS.moth()
+	flit["root"].scale = Vector3.ONE * (1.4 + 0.2 * float(m.get("lv", 1)))
+	add_child(flit["root"])
+	var l := OmniLight3D.new()
+	l.light_color = Color(0.7, 0.85, 1.0)
+	l.light_energy = 0.6
+	l.omni_range = 1.2
+	flit["root"].add_child(l)
 
 
 ## The hall: a stone floor, a back wall with an archway between two torches,
@@ -237,5 +259,13 @@ func _process(dt: float) -> void:
 			for wg in bat_wings:
 				wg[0].rotation.z = wg[1] * 0.7 * sin(t * 14.0)
 		nem_light.light_energy = (2.2 if aaa else 1.4) * (0.75 + 0.25 * sin(t * 1.7))
+	if not flit.is_empty():
+		var c: Vector3 = lantern.global_position if lantern != null else Vector3(0.35, 1.1, 0.55)
+		var fa := t * 1.6
+		var fr: Node3D = flit["root"]
+		fr.position = c + Vector3(cos(fa) * 0.45, 0.15 + 0.1 * sin(t * 2.3), sin(fa) * 0.45)
+		fr.rotation.y = -fa
+		for wg in flit["wings"]:
+			wg[0].rotation.z = wg[1] * (0.25 + 0.75 * sin(t * 22.0))
 	for i in torches.size():
 		torches[i].light_energy = (2.8 if aaa else 1.5) + 0.25 * sin(t * 9.0 + i * 2.0) + 0.12 * sin(t * 23.0 + i)

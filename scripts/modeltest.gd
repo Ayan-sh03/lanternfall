@@ -78,6 +78,12 @@ func run() -> void:
 		main.use_3d = true
 		var keep_nem: Dictionary = main.profile["nemesis"]
 		main.profile["nemesis"] = {"kind": "brute", "name": "Vorulch", "rank": 2, "wins": 2}
+		main.slot = 9
+		var fake := {"depth": 2, "stats": {}, "seed": 1, "moth": {"lv": 2, "hp": 3, "fed": 2}}
+		var keep0: Dictionary = main.read_save(0)
+		var sf := FileAccess.open(main._slot_path(0), FileAccess.WRITE)
+		sf.store_string(JSON.stringify(fake))
+		sf.close()
 		main.title_scene(false)
 		await get_tree().process_frame
 		main.hud.show_title()
@@ -90,6 +96,14 @@ func run() -> void:
 			if l.text.begins_with("Below waits Vorulch"):
 				named = true
 		check(named, "and the title names it")
+		if main.title3d != null:
+			check(not main.title3d.flit.is_empty(), "Flit circles Wren's lantern on the title")
+		if keep0.is_empty():
+			main.delete_save(0)
+		else:
+			var rf := FileAccess.open(main._slot_path(0), FileAccess.WRITE)
+			rf.store_string(JSON.stringify(keep0))
+			rf.close()
 		main.profile["nemesis"] = keep_nem
 		await at.shot("title3d")
 		main.new_game(1)
