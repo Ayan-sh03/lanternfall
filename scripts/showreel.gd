@@ -60,22 +60,25 @@ func _build_caption() -> void:
 	sb.content_margin_left = 22
 	sb.content_margin_right = 22
 	cap_box.add_theme_stylebox_override("panel", sb)
-	cap_box.anchor_left = 0.5
-	cap_box.anchor_right = 0.5
-	cap_box.offset_top = 96
-	cap_box.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	# A lower-left panel: clear of the title, the death screen's heading, the
+	# kindling plaques and the hotbar.
+	cap_box.anchor_top = 1.0
+	cap_box.anchor_bottom = 1.0
+	cap_box.offset_left = 18
+	cap_box.offset_bottom = -22
+	cap_box.grow_vertical = Control.GROW_DIRECTION_BEGIN
 	cap_box.modulate.a = 0.0
 	cap_layer.add_child(cap_box)
 	var vb := VBoxContainer.new()
 	cap_box.add_child(vb)
 	cap_title = Label.new()
-	cap_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	cap_title.add_theme_font_size_override("font_size", 30)
+	cap_title.add_theme_font_size_override("font_size", 28)
 	cap_title.add_theme_color_override("font_color", Color(1.0, 0.72, 0.35))
 	vb.add_child(cap_title)
 	cap_sub = Label.new()
-	cap_sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	cap_sub.add_theme_font_size_override("font_size", 19)
+	cap_sub.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	cap_sub.custom_minimum_size = Vector2(360, 0)
+	cap_sub.add_theme_font_size_override("font_size", 17)
 	cap_sub.add_theme_color_override("font_color", Color(0.93, 0.87, 0.72))
 	vb.add_child(cap_sub)
 
@@ -90,8 +93,8 @@ func cap(title: String, sub: String = "", secs: float = 4.5) -> void:
 	cap_sub.text = sub
 	cap_sub.visible = sub != ""
 	cap_box.reset_size()
-	cap_box.offset_left = -cap_box.size.x * 0.5
-	cap_box.offset_right = cap_box.size.x * 0.5
+	cap_box.offset_top = cap_box.offset_bottom - cap_box.get_combined_minimum_size().y
+	cap_box.offset_right = cap_box.offset_left + 400
 	var tw := cap_box.create_tween()
 	tw.tween_property(cap_box, "modulate:a", 1.0, 0.3)
 	tw.tween_interval(secs)
