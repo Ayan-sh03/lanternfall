@@ -3,6 +3,8 @@ extends Node
 ## Plays through every floor with a simple bot, exercises each interaction, saves
 ## screenshots along the way, then quits. Not used in normal play.
 
+const Story = preload("res://scripts/story.gd")
+
 var main
 var dir := ""
 
@@ -20,6 +22,11 @@ func w(sec: float) -> void:
 
 
 func shot(id: String) -> void:
+	# Without a screen (CI runs headless) frames are never drawn: just step one.
+	if DisplayServer.get_name() == "headless":
+		await get_tree().process_frame
+		print("SHOT ", id)
+		return
 	await RenderingServer.frame_post_draw
 	if dir != "":
 		get_viewport().get_texture().get_image().save_png(dir.path_join(id + ".png"))
@@ -216,6 +223,441 @@ func anim_shots() -> void:
 		await shot("a_foes%d" % i)
 	main.delete_save(9)
 	get_tree().quit()
+
+
+## The 3D view: the stairwell, the same moment in both views, and a check that
+## the mouse aims where it points.
+func view3d_test() -> void:
+	main.slot = 9
+	await w(0.5)
+	main.hud._close_modal()
+	main.use_3d = true
+	main.new_game(1)
+	await w(2.5)
+	var g = main.game
+	var v = g.view3d
+	g.bot = true
+	g.bot_manual = true
+	g.god = true
+	g.hud.hint_t = 0.0
+	var fails := 0
+
+	# Mouse aim: the map point the game reads under the cursor must be drawn
+	# exactly under the cursor, and Wren must aim toward the cursor on screen.
+	g.bot = false
+	for off in [Vector2(40, 0), Vector2(-25, 30), Vector2(10, -45), Vector2(-60, -20)]:
+		var want: Vector2 = g.pcenter() + off
+		get_viewport().warp_mouse(v.cam.unproject_position(Vector3(want.x / 16.0, v.LIFT * v.K / 16.0, (want.y + v.LIFT) / 16.0)))
+		await w(0.15)
+		# The camera leads toward the cursor, so check against where it is now.
+		var mp := get_viewport().get_mouse_position()
+		var got: Vector2 = g.mouse_world()
+		var back: Vector2 = v.cam.unproject_position(Vector3(got.x / 16.0, v.LIFT * v.K / 16.0, (got.y + v.LIFT) / 16.0))
+		var chest: Vector2 = v.cam.unproject_position(Vector3(g.ppos.x / 16.0, v.LIFT * v.K / 16.0, g.ppos.y / 16.0))
+		var ok := back.distance_to(mp) < 1.0
+		var on_screen := (mp - chest).normalized()
+		var aim_screen: Vector2 = (v.cam.unproject_position(Vector3((g.ppos.x + g.aim.x * 30.0) / 16.0, v.LIFT * v.K / 16.0, (g.ppos.y + g.aim.y * 30.0) / 16.0)) - chest).normalized()
+		var aims := aim_screen.dot(on_screen) > 0.995
+		if not (ok and aims):
+			fails += 1
+		print("AIM3D cursor %s reads %s, drawn at %s, aim off by %.1f deg %s" % [mp, got, back,
+			rad_to_deg(acos(clampf(aim_screen.dot(on_screen), -1.0, 1.0))), "ok" if ok and aims else "FAIL"])
+	g.bot = true
+
+	# The way down, close in.
+	for e in g.enemies:
+		e.dead = true
+		e.visible = false
+	for p in g.props:
+		if p["type"] == "stairs":
+			g.teleport(p["pos"] + Vector2(-22, 14))
+	g.cam_script = true
+	g.cam.zoom = Vector2(5, 5)
+	await w(0.8)
+	await shot("v_stairs")
+	g.cam_script = false
+
+	# One moment, both ways.
+	for p in g.props:
+		if p["type"] == "brazier":
+			g.teleport(p["pos"] + Vector2(0, 30))
+			break
+	await w(1.0)
+	await shot("v_3d")
+	main.use_3d = false
+	v.set_active(false)
+	await w(0.3)
+	await shot("v_2d")
+	if g.visible != true:
+		fails += 1
+		print("VIEW3D 2D view did not come back FAIL")
+	main.use_3d = true
+	v.set_active(true)
+	await w(0.3)
+	if g.visible:
+		fails += 1
+		print("VIEW3D 2D view still drawn under 3D FAIL")
+	await shot("v_back")
+
+	# A kill, frame by frame: the impact, the white husk, the embers. With
+	# --2d it is shot in the flat view, for comparison.
+	if OS.get_cmdline_user_args().has("--2d"):
+		v.set_active(false)
+	for p in g.props:
+		if p["type"] == "stairs":
+			g.teleport(p["pos"] + Vector2(-30, 20))
+	g.cam_script = true
+	g.cam.zoom = Vector2(5.5, 5.5)
+	g.aim = Vector2.RIGHT
+	var foe = g.spawn_enemy("husk", g.ppos + Vector2(20, 4), 0)
+	foe.awake = true
+	foe.hp = 1.0
+	await w(0.3)
+	g.combo = 2
+	g.combo_t = 1.0
+	g.atk_cd = 0.0
+	g.do_slash()
+	for i in 5:
+		await shot("v_kill%d" % i)
+		await w(0.06 if i < 2 else 0.18)
+	print("VIEW3D %s" % ("PASS" if fails == 0 else "FAIL %d" % fails))
+	main.delete_save(9)
+	get_tree().quit()
+
+
+## Parry, struck-back hexes, and the lamp's oil: each checked for what it
+## should do, with screenshots of each.
+func mechanics_test() -> void:
+	main.slot = 9
+	await w(0.5)
+	main.hud._close_modal()
+	main.new_game(1)
+	await w(2.5)
+	var g = main.game
+	g.bot = true
+	g.bot_manual = true
+	g.hud.hint_t = 0.0
+	g.hud.card_t = 0.0
+	var fails := 0
+	for e in g.enemies:
+		e.dead = true
+		e.visible = false
+	for p in g.props:
+		if p["type"] == "stairs":
+			g.teleport(p["pos"] + Vector2(-30, 20))
+	await w(0.5)
+
+	# Parry: a husk caught mid-lunge is staggered, and Wren takes nothing.
+	g.aim = Vector2.RIGHT
+	var h = g.spawn_enemy("husk", g.ppos + Vector2(18, 0), 0)
+	h.awake = true
+	h.hp = 999.0
+	h.state = "lunge"
+	h.st = 0.2
+	h.dir = Vector2.LEFT
+	var hp0: int = g.hp
+	g.invuln = 0.0
+	g.atk_cd = 0.0
+	g.do_slash()
+	# Let the burst and the PARRY reach the screen before shooting it.
+	await get_tree().process_frame
+	await get_tree().process_frame
+	await shot("m_parry")
+	await w(0.3)
+	var ok: bool = h.stun > 0.0 and g.hp == hp0
+	print("MECH parry: stun %.2f, hp %d -> %d %s" % [h.stun, hp0, g.hp, "ok" if ok else "FAIL"])
+	if not ok:
+		fails += 1
+	# An ordinary strike on a foe that is not attacking is not a parry.
+	h.stun = 0.0
+	h.state = "chase"
+	g.atk_cd = 0.0
+	g.combo_t = 0.0
+	g.do_slash()
+	ok = h.stun <= 0.0
+	print("MECH no parry when idle: stun %.2f %s" % [h.stun, "ok" if ok else "FAIL"])
+	if not ok:
+		fails += 1
+	h.dead = true
+	h.visible = false
+	await w(1.2)
+
+	# A hex struck out of the air goes back, friendly, toward the cantor:
+	# put the cantor along a line with no wall in the way.
+	var dir := Vector2.RIGHT
+	for cand in [Vector2.RIGHT, Vector2.LEFT, Vector2.DOWN, Vector2.UP]:
+		if g.los(g.pcenter(), g.pcenter() + cand * 60.0):
+			dir = cand
+			break
+	var c = g.spawn_enemy("cantor", g.ppos + dir * 50.0, 0)
+	c.awake = true
+	c.hp = 999.0
+	c.cd = 99.0
+	await get_tree().process_frame
+	g.add_shot(g.pcenter() + dir * 14.0, -dir * 92.0, false, 1, Color(1.0, 0.3, 0.75))
+	var hex: Dictionary = g.shots[g.shots.size() - 1]
+	g.atk_cd = 0.0
+	g.combo_t = 0.0
+	g.aim = dir
+	g.do_slash()
+	ok = hex["friendly"] and hex["vel"].dot(dir) > 0.0
+	print("MECH reflect: friendly %s vel %s %s" % [hex["friendly"], hex["vel"], "ok" if ok else "FAIL"])
+	if not ok:
+		fails += 1
+	var chp: float = c.hp
+	await w(0.1)
+	await shot("m_reflect")
+	await w(0.6)
+	ok = c.hp < chp
+	print("MECH reflected hex hits its caster: hp %.0f -> %.0f %s" % [chp, c.hp, "ok" if ok else "FAIL"])
+	if not ok:
+		fails += 1
+	c.dead = true
+	c.visible = false
+
+	# The lamp: a near-empty flask shrinks the light and calls gloams.
+	g.oil = g.max_oil
+	await w(0.3)
+	var full_r: float = g.plight.texture_scale
+	g.stats["oil_regen"] = 0.0
+	g.oil = 4.0
+	await w(0.3)
+	var low_r: float = g.plight.texture_scale
+	ok = low_r < full_r * 0.7
+	print("MECH light follows oil: %.2f -> %.2f %s" % [full_r, low_r, "ok" if ok else "FAIL"])
+	if not ok:
+		fails += 1
+	g.gloam_t = 0.0
+	var n := 0
+	for k in 40:
+		await w(0.25)
+		n = 0
+		for e in g.enemies:
+			if e.kind == "gloam" and not e.dead:
+				n += 1
+		if n >= 2:
+			break
+	ok = n >= 1
+	print("MECH gloams come when the oil is low: %d %s" % [n, "ok" if ok else "FAIL"])
+	if not ok:
+		fails += 1
+	g.god = false
+	g.cam_script = true
+	g.cam.zoom = Vector2(3.4, 3.4)
+	for e in g.enemies:
+		if e.kind == "gloam" and not e.dead:
+			g.teleport(e.position + Vector2(-26, 10))
+			break
+	await w(0.4)
+	await shot("m_gloam")
+	g.oil = g.max_oil
+	await w(0.3)
+	n = 0
+	for e in g.enemies:
+		if e.kind == "gloam" and not e.dead:
+			n += 1
+	ok = n == 0
+	print("MECH gloams melt when the lamp is full again: %d left %s" % [n, "ok" if ok else "FAIL"])
+	if not ok:
+		fails += 1
+	await shot("m_gloam_gone")
+	print("MECH %s" % ("PASS" if fails == 0 else "FAIL %d" % fails))
+	main.delete_save(9)
+	get_tree().quit(1 if fails > 0 else 0)
+
+
+var pfails := 0
+
+
+func pcheck(ok: bool, what: String) -> void:
+	print("PROG %s %s" % [what, "ok" if ok else "FAIL"])
+	if not ok:
+		pfails += 1
+
+
+## Fair deaths, kept embers, the town, deeds and the kindlings that combine:
+## each checked for what it should do, with screenshots of the new screens.
+func progress_test() -> void:
+	main.slot = 9
+	var pr: Dictionary = main.profile
+	pr["embers"] = 0
+	pr["town"] = []
+	pr["tally"] = {}
+	pr["feats"] = []
+	pr["best"] = {}
+	pr["resolve"] = false
+	await w(0.5)
+	main.hud._close_modal()
+	main.new_game(1)
+	await w(2.5)
+	var g = main.game
+	g.bot = true
+	g.bot_manual = true
+	g.hud.hint_t = 0.0
+	g.hud.card_t = 0.0
+	for e in g.enemies:
+		e.dead = true
+		e.visible = false
+	for p in g.props:
+		if p["type"] == "stairs":
+			g.teleport(p["pos"] + Vector2(-30, 20))
+	await w(0.3)
+
+	# Mercy: one blow cannot take Wren from more than a heart to nothing.
+	g.hp = 8
+	g.invuln = 0.0
+	g.hurt_player(20, g.ppos + Vector2(10, 0), 100.0, "brute")
+	pcheck(g.hp == 1 and not g.dead, "a huge blow from full health leaves one half-heart (hp %d)" % g.hp)
+	pcheck(g.invuln >= 1.5, "the last heart gets a longer breath (invuln %.2f)" % g.invuln)
+	pcheck(g.last_cause == "brute", "the blow's source is remembered (%s)" % g.last_cause)
+
+	# Embers: a kill pays at once, into the profile.
+	var e0 := int(pr["embers"])
+	var h = g.spawn_enemy("husk", g.ppos + Vector2(60, 0), 0)
+	var xp: int = h.xp
+	h.hurt(99999.0, Vector2.ZERO)
+	pcheck(int(pr["embers"]) == e0 + xp and xp > 0, "a kill banks its embers (%d -> %d)" % [e0, int(pr["embers"])])
+
+	# Deeds: the first parry pays out.
+	var e1 := int(pr["embers"])
+	main.tally("parries")
+	pcheck((pr["feats"] as Array).has("parry1") and int(pr["embers"]) == e1 + 15, "the first-parry deed pays 15 embers")
+
+	# The lamp's resolve turns some blows, about as often as it says.
+	pr["resolve"] = true
+	pr["tally"]["deaths"] = 20
+	var turned := 0
+	for i in 300:
+		g.hp = 8
+		g.invuln = 0.0
+		var hp0: int = g.hp
+		g.hurt_player(1, g.ppos + Vector2(10, 0), 0.0, "husk")
+		if g.hp == hp0:
+			turned += 1
+	var rate := turned / 300.0
+	pcheck(absf(rate - main.resolve_chance()) < 0.1, "resolve turns %.0f%% of blows (meant %.0f%%)" % [rate * 100.0, main.resolve_chance() * 100.0])
+	pr["resolve"] = false
+	pr["tally"]["deaths"] = 0
+	g.hp = g.max_hp
+
+	# Kindlings that combine.
+	g.apply_boon("burn")
+	g.apply_boon("trail")
+	var offered := false
+	for k in 30:
+		g._offer_boons("t", "s")
+		for o in g.hud.modal_root.find_children("*", "Label", true, false):
+			if (o as Label).text == "Wildfire":
+				offered = true
+		g.hud._close_modal()
+		if offered:
+			break
+	pcheck(offered, "Wildfire is offered once Afterburn and Cinder Trail are held")
+	g.apply_boon("wildfire")
+	pcheck(int(pr["tally"].get("duos", 0)) == 1 and (pr["feats"] as Array).has("duo"), "taking a combined kindling counts as a deed")
+	# Along a line clear of walls, so nothing but the foes gets in the way.
+	var dir := Vector2.RIGHT
+	for cand in [Vector2.RIGHT, Vector2.LEFT, Vector2.DOWN, Vector2.UP]:
+		if g.los(g.pcenter(), g.pcenter() + cand * 100.0):
+			dir = cand
+			break
+	# No puddle underfoot to put the fire out.
+	g.surf.clear()
+	var a = g.spawn_enemy("husk", g.ppos + dir * 60.0, 0)
+	var b = g.spawn_enemy("husk", g.ppos + dir * 74.0, 0)
+	for e in [a, b]:
+		e.hp = 999.0
+		e.awake = true
+		e.stun = 5.0
+	a.burn_t = 3.0
+	a.burn_dps = 6.0
+	await w(1.2)
+	pcheck(b.burn_t > 0.0, "Wildfire spreads a burn to the foe beside")
+	g.apply_boon("starfall")
+	var n0: int = g.shots.size()
+	g.add_shot(a.center() - dir * 6.0, dir * 200.0, true, 5.0, Color(1, 0.6, 0.2))
+	# One frame: the split bolts are short-lived with the second foe so near.
+	await get_tree().process_frame
+	await get_tree().process_frame
+	var splits := 0
+	for sh in g.shots:
+		if sh.get("split", false):
+			splits += 1
+	pcheck(splits >= 2, "Starfall breaks a bolt into two on a hit (%d)" % splits)
+	g.apply_boon("riposte")
+	g.teleport(a.position - dir * 18.0)
+	a.state = "lunge"
+	a.st = 0.2
+	a.stun = 0.0
+	a.touch_cd = 1.0
+	a.dir = -dir
+	g.aim = (a.center() - g.pcenter()).normalized()
+	g.atk_cd = 0.0
+	g.do_slash()
+	pcheck(g.riposte_t > 0.0, "a parry with Riposte readies a sure strike")
+	a.state = "chase"
+	var hp_a: float = a.hp
+	g.atk_cd = 0.0
+	g.combo_t = 0.0
+	g.do_slash()
+	pcheck(g.riposte_t <= 0.0 and hp_a - a.hp >= g.stats["dmg"] * 1.9, "the next strike lands twice as hard (%.0f)" % (hp_a - a.hp))
+	for e in [a, b]:
+		e.dead = true
+		e.visible = false
+	await w(0.5)
+
+	# The death screen: what did it, what to do about it, embers kept.
+	g.invuln = 0.0
+	g.hp = 1
+	g.hurt_player(2, g.ppos + Vector2(10, 0), 100.0, "brute")
+	await w(3.4)
+	pcheck(main.hud.modal == "death" and main.last_cause == "brute", "the death screen names the Bellringer")
+	await shot("p_death")
+	pcheck(g._wake_line() == Story.WREN_WAKE["brute"][0], "Wren's waking line is about the bell")
+
+	# The town: light everything, then a fresh descent carries it all.
+	pr["embers"] = 2000
+	main.hud.show_town()
+	await w(0.4)
+	await shot("p_town")
+	for l in Story.TOWN:
+		main.light_town_lamp(l["id"])
+	pcheck((pr["town"] as Array).size() == Story.TOWN.size() and (pr["feats"] as Array).has("lamps"), "every lamp lights, and the deed for it")
+	main.hud.show_town()
+	await w(0.3)
+	await shot("p_town_lit")
+	main.hud.show_deeds()
+	await w(0.3)
+	await shot("p_deeds")
+	main.hud._close_modal()
+	main.new_game(1)
+	await w(2.0)
+	g = main.game
+	g.hud.card_t = 0.0
+	pcheck(g.max_hp == 10 and g.max_oil == 125.0 and g.spare_match and g.bolt_cost() == 15.0, "the lit town strengthens a fresh descent")
+	g.add_xp(g.xp_next)
+	await w(1.0)
+	pcheck(main.hud.modal == "choice" and main.hud.choice_n == 4, "the chapel lamp offers four kindlings (%d)" % main.hud.choice_n)
+	await shot("p_choice4")
+	var bell := false
+	for o in main.hud.modal_root.find_children("*", "Button", true, false):
+		if (o as Button).text.begins_with("Ring the bell"):
+			bell = true
+	pcheck(bell, "the bell tower lamp offers a fresh choice")
+	main.hud._choose(0)
+
+	# A foe winding up off the screen gets a chevron at the edge.
+	g.bot = true
+	g.bot_manual = true
+	var br = g.spawn_enemy("brute", g.ppos + Vector2(0, -150), 0)
+	br.awake = true
+	br.state = "wind"
+	br.st = 5.0
+	await w(0.3)
+	await shot("p_warning")
+	print("PROG %s" % ("PASS" if pfails == 0 else "FAIL %d" % pfails))
+	main.delete_save(9)
+	get_tree().quit(1 if pfails > 0 else 0)
 
 
 var probe_on := false
@@ -520,6 +962,32 @@ func run() -> void:
 		return
 	if OS.get_cmdline_user_args().has("--quick"):
 		quick()
+		return
+	if OS.get_cmdline_user_args().has("--view3d"):
+		view3d_test()
+		return
+	if OS.get_cmdline_user_args().has("--mechanics"):
+		mechanics_test()
+		return
+	if OS.get_cmdline_user_args().has("--progress"):
+		progress_test()
+		return
+	if OS.get_cmdline_user_args().has("--wild"):
+		var wt = load("res://scripts/wildtest.gd").new()
+		wt.main = main
+		wt.at = self
+		add_child(wt)
+		wt.run()
+		return
+	if OS.get_cmdline_user_args().has("--wildreel"):
+		var wr = load("res://scripts/wildreel.gd").new()
+		wr.main = main
+		add_child(wr)
+		return
+	if OS.get_cmdline_user_args().has("--showreel"):
+		var reel = load("res://scripts/showreel.gd").new()
+		reel.main = main
+		add_child(reel)
 		return
 	var hud = main.hud
 	main.slot = 9

@@ -8,6 +8,7 @@ var slashes: Array = []
 var rings: Array = []
 var bolts: Array = []
 var wards: Array = []
+var impacts: Array = []
 var t := 0.0
 
 
@@ -20,6 +21,7 @@ func clear() -> void:
 	slashes.clear()
 	rings.clear()
 	bolts.clear()
+	impacts.clear()
 
 
 func spark(pos: Vector2, col: Color, n: int = 6, spd: float = 60.0, life: float = 0.4, size: float = 1.5, grav: float = 0.0) -> void:
@@ -27,15 +29,45 @@ func spark(pos: Vector2, col: Color, n: int = 6, spd: float = 60.0, life: float 
 		if parts.size() > 600:
 			return
 		var l := life * randf_range(0.6, 1.0)
-		parts.append({"p": pos, "v": Vector2.from_angle(randf() * TAU) * spd * randf_range(0.3, 1.0),
+		parts.append({"p": pos, "o": pos, "v": Vector2.from_angle(randf() * TAU) * spd * randf_range(0.3, 1.0),
 			"l": l, "m": l, "s": size, "c": col, "g": grav})
 
 
 func flame(pos: Vector2, col: Color = Color(1.0, 0.5, 0.12, 0.9)) -> void:
 	if parts.size() > 600:
 		return
-	parts.append({"p": pos + Vector2(randf_range(-2.5, 2.5), 0.0), "v": Vector2(randf_range(-5.0, 5.0), randf_range(-30.0, -14.0)),
+	parts.append({"p": pos + Vector2(randf_range(-2.5, 2.5), 0.0), "o": pos, "v": Vector2(randf_range(-5.0, 5.0), randf_range(-30.0, -14.0)),
 		"l": 0.5, "m": 0.5, "s": 2.2, "c": col, "g": -12.0})
+
+
+## One particle with everything spelled out. ground_y is the map row of the
+## floor beneath it, so the 3D view knows how high above the floor it floats.
+func add_part(pos: Vector2, ground_y: float, vel: Vector2, life: float, size: float, col: Color, grav: float = 0.0) -> void:
+	if parts.size() > 900:
+		return
+	parts.append({"p": pos, "o": Vector2(pos.x, ground_y - 7.0), "v": vel, "l": life, "m": life, "s": size, "c": col, "g": grav})
+
+
+## The burst at the instant of a blow: a few hard white spikes, gone in a blink.
+func impact(pos: Vector2, ang: float, col: Color, size: float = 1.0) -> void:
+	if impacts.size() > 24:
+		impacts.pop_front()
+	impacts.append({"p": pos, "g": ang, "c": col, "s": size, "t": 0.0, "d": 0.11 + 0.03 * size, "k": randi()})
+
+
+## The spikes of an impact burst, as (angle, length, width) triples.
+static func impact_spikes(im: Dictionary) -> Array:
+	var r := RandomNumberGenerator.new()
+	r.seed = im["k"]
+	var out: Array = []
+	var n := 7
+	var sz: float = im["s"]
+	for i in n:
+		var main_ray := i == 0
+		var a: float = im["g"] + (0.0 if main_ray else TAU * i / n + r.randf_range(-0.3, 0.3))
+		var l: float = sz * (22.0 if main_ray else r.randf_range(8.0, 15.0))
+		out.append(Vector3(a, l, sz * (3.2 if main_ray else 2.0)))
+	return out
 
 
 func slash(pos: Vector2, ang: float, reach: float, arc: float, col: Color, dur: float = 0.16) -> void:
@@ -76,6 +108,12 @@ func _process(dt: float) -> void:
 		slashes[i]["t"] += dt
 		if slashes[i]["t"] >= slashes[i]["d"]:
 			slashes.remove_at(i)
+		i -= 1
+	i = impacts.size() - 1
+	while i >= 0:
+		impacts[i]["t"] += dt
+		if impacts[i]["t"] >= impacts[i]["d"]:
+			impacts.remove_at(i)
 		i -= 1
 	i = rings.size() - 1
 	while i >= 0:
@@ -140,6 +178,22 @@ func _draw() -> void:
 			draw_line(wp + d0 * (wr - 6.0), wp + d0 * (wr + 1.0), Color(1.0, 0.85, 0.5, 0.9 * wa), 2.0)
 			var d1 := Vector2.from_angle(-ang * 1.3)
 			draw_rect(Rect2(wp + d1 * wr * 0.62 - Vector2(1.5, 1.5), Vector2(3, 3)), Color(1.0, 0.8, 0.45, 0.8 * wa))
+
+	for im in impacts:
+		var k: float = 1.0 - im["t"] / im["d"]
+		var o: Vector2 = im["p"]
+		var c: Color = im["c"]
+		# White on the first frames, then the colour of whatever was struck.
+		var col := Color(1, 1, 1, k).lerp(Color(c.r, c.g, c.b, k), clampf(1.0 - k * 1.6, 0.0, 1.0))
+		for sp in impact_spikes(im):
+			var d := Vector2.from_angle(sp.x)
+			var side: Vector2 = d.orthogonal() * sp.z * k
+			var tip: Vector2 = o + d * sp.y * (0.55 + 0.45 * (1.0 - k))
+			# Two plain triangles: a spike thinned to nothing must not fail.
+			var cols := PackedColorArray([col, col, col])
+			draw_primitive(PackedVector2Array([tip, o + side, o - side]), cols, PackedVector2Array())
+			draw_primitive(PackedVector2Array([o - d * 2.0, o + side, o - side]), cols, PackedVector2Array())
+		draw_circle(o, 4.0 * im["s"] * k, Color(1, 1, 1, k))
 
 	for r in rings:
 		var k: float = r["t"] / r["d"]
