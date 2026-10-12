@@ -27,6 +27,9 @@ var stick_id := -1
 ## The finger turning the 3D camera (a drag on the open right side), and where it was.
 var cam_id := -1
 var cam_last := Vector2.ZERO
+## A second finger there pinches to zoom.
+var pinch_id := -1
+var pinch_last := Vector2.ZERO
 var stick_o := Vector2.ZERO
 var stick_p := Vector2.ZERO
 ## Finger index -> the stone it is holding, and where it first came down.
@@ -49,6 +52,7 @@ func active() -> bool:
 func reset() -> void:
 	stick_id = -1
 	cam_id = -1
+	pinch_id = -1
 	held.clear()
 	held_at.clear()
 	move = Vector2.ZERO
@@ -105,12 +109,23 @@ func _input(ev: InputEvent) -> void:
 	elif ev.index == stick_id:
 		stick_p = p
 		_update_stick()
-	elif ev.index == cam_id:
-		# A thumb dragged across the open right side turns the 3D camera.
+	elif ev.index == cam_id or ev.index == pinch_id:
 		var v = game.view3d
-		if v != null and v.active:
-			v.yaw_to -= (p.x - cam_last.x) * 0.008
-		cam_last = p
+		if pinch_id != -1:
+			# Two fingers: pinch to zoom.
+			var before := cam_last.distance_to(pinch_last)
+			if ev.index == cam_id:
+				cam_last = p
+			else:
+				pinch_last = p
+			var after := cam_last.distance_to(pinch_last)
+			if v != null and v.active and before > 10.0 and after > 10.0:
+				v.zoom_to = clampf(v.zoom_to * before / after, 0.55, 1.6)
+		else:
+			# A thumb dragged across the open right side turns the 3D camera.
+			if v != null and v.active:
+				v.yaw_to -= (p.x - cam_last.x) * 0.008
+			cam_last = p
 	elif held.has(ev.index) and (held[ev.index] == "strike" or held[ev.index] == "bolt"):
 		var d: Vector2 = p - held_at[ev.index]
 		if d.length() > 26.0:
@@ -127,9 +142,13 @@ func _press(idx: int, p: Vector2) -> void:
 			stick_o = Vector2(clampf(p.x, STICK_R + 8.0, size.x * 0.5), clampf(p.y, STICK_R + 60.0, size.y - STICK_R - 8.0))
 			stick_p = p
 			_update_stick()
-		elif cam_id == -1 and game.view3d != null and game.view3d.active:
-			cam_id = idx
-			cam_last = p
+		elif game.view3d != null and game.view3d.active:
+			if cam_id == -1:
+				cam_id = idx
+				cam_last = p
+			elif pinch_id == -1:
+				pinch_id = idx
+				pinch_last = p
 		return
 	held[idx] = id
 	held_at[idx] = p
@@ -163,8 +182,14 @@ func _press(idx: int, p: Vector2) -> void:
 
 
 func _release(idx: int) -> void:
+	if idx == pinch_id:
+		pinch_id = -1
+		return
 	if idx == cam_id:
-		cam_id = -1
+		# The pinching finger, if any, carries on turning.
+		cam_id = pinch_id
+		cam_last = pinch_last
+		pinch_id = -1
 		return
 	if idx == stick_id:
 		stick_id = -1

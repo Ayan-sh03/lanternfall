@@ -231,6 +231,38 @@ func run() -> void:
 	await at.shot("md_zoomed")
 	v.yaw_to = 0.0
 	v.zoom_to = 1.0
+	await w(0.5)
+	# Touch: a drag on the open right side turns; a second finger pinches.
+	var pad = load("res://scripts/touch.gd").new()
+	pad.hud = g.hud
+	pad.game = g
+	g.hud.hud_group.add_child(pad)
+	await get_tree().process_frame
+	g.hud._close_modal()
+	var was_bot: bool = g.bot
+	g.bot = false
+	var r: float = pad.size.x * 0.62
+	pad._press(5, Vector2(r, 120))
+	for i in 10:
+		var dr := InputEventScreenDrag.new()
+		dr.index = 5
+		dr.position = pad.get_global_transform() * Vector2(r - 10.0 * (i + 1), 120)
+		pad._input(dr)
+	check(v.yaw_to > 0.6, "a thumb drag turns the camera (%.2f)" % v.yaw_to)
+	pad._press(6, Vector2(r - 100.0, 220))
+	var d0: float = pad.cam_last.distance_to(pad.pinch_last)
+	var pd := InputEventScreenDrag.new()
+	pd.index = 6
+	pd.position = pad.get_global_transform() * (pad.pinch_last + (pad.pinch_last - pad.cam_last).normalized() * d0)
+	pad._input(pd)
+	check(v.zoom_to < 0.6, "spreading two fingers draws the camera in (%.2f)" % v.zoom_to)
+	pad._release(6)
+	pad._release(5)
+	check(pad.cam_id == -1 and pad.pinch_id == -1, "and lifting both lets the camera be")
+	pad.queue_free()
+	g.bot = was_bot
+	v.yaw_to = 0.0
+	v.zoom_to = 1.0
 	print("MODEL %s" % ("PASS" if fails == 0 else "FAIL %d" % fails))
 	main.delete_save(9)
 	get_tree().quit(1 if fails > 0 else 0)
