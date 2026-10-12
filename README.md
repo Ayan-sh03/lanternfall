@@ -18,6 +18,8 @@ Get the latest build from the [Releases page](https://github.com/Ayan-sh03/lante
 - Seven depths, from the Lamp Cellars down to the Heartforge, each generated fresh for every descent.
 - Six kinds of monster, elites that seal the stairs, and one Warden at the bottom.
 - A three-hit staff combo, ember bolts that burn lamp oil, and a dash.
+- Parries: strike a foe as it lunges or charges and it staggers; strike a hex out of the air and it flies back at whoever cast it.
+- The lamp runs on the same oil as the bolts. The emptier the flask, the smaller the light, and below a fifth, shades called gloams come out of the dark until the lamp is bright again.
 - Twenty-three kindlings to choose between as you level up, and relic powers found on the way down.
 - Wayside lamps that heal you and save the run. Three save slots, and any depth you have reached can be started from again.
 - Writings and plaques that tell what happened to the keepers, and two endings.

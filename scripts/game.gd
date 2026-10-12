@@ -171,6 +171,10 @@ var sq_amp := 0.0
 var sq_t := 9.0
 ## The opaque pixels of each sprite frame, for breaking foes into embers.
 var pix_cache := {}
+## Gloams: shades that come out of the dark when the lamp burns low.
+const GLOAM_LOW := 0.2
+const GLOAM_SAFE := 0.4
+var gloam_t := 0.0
 
 var bot := false
 var bot_manual := false
@@ -842,6 +846,7 @@ func _process(dt: float) -> void:
 	_update_shots(dt)
 	_update_powers(dt)
 	_update_pickups(dt)
+	_update_gloam(dt)
 	_update_props(dt)
 	_update_fog(dt)
 	_update_camera(dt)
@@ -984,7 +989,9 @@ func _update_player(dt: float) -> void:
 	light_k = move_toward(light_k, 0.0 if dead else light_target, dt * (0.9 if dead else 0.5))
 	var flick := 0.95 + 0.04 * sin(anim_t * 11.0) + 0.03 * sin(anim_t * 23.7)
 	nova_flash = maxf(0.0, nova_flash - dt * 3.0)
-	plight.texture_scale = 1.85 * stats["light"] * (0.35 + 0.65 * light_k) * (1.0 + 0.5 * nova_flash)
+	# The lamp burns on the oil in the flask: the emptier, the smaller the light.
+	var fuel := pow(clampf(oil / maxf(max_oil, 1.0), 0.0, 1.0), 0.7)
+	plight.texture_scale = 1.85 * stats["light"] * (0.35 + 0.65 * light_k) * (1.0 + 0.5 * nova_flash) * lerpf(0.5, 1.0, fuel)
 	plight.energy = 1.3 * flick * (0.25 + 0.75 * light_k) + 1.6 * nova_flash
 	pglow.modulate.a = 0.5 * flick * light_k
 	var reach: Vector2 = get_viewport().get_visible_rect().size * 0.5 / cam.zoom.x + Vector2(125, 125)
@@ -1111,6 +1118,9 @@ func do_slash() -> void:
 		var v: Vector2 = e.center() - o
 		var d := v.length()
 		if d < reach + e.hit_r and (d < 9.0 or absf(aim.angle_to(v)) < arc * 0.5 + 0.2):
+			if _parry(e):
+				hit += 1
+				continue
 			var crit: bool = rng.randf() < stats["crit"]
 			if crit:
 				e.hurt(dmg * 2.0, aim * 170.0, Color(1.0, 0.55, 0.15))
@@ -1129,14 +1139,13 @@ func do_slash() -> void:
 			var v: Vector2 = p["pos"] - o
 			if v.length() < reach + 5.0 and absf(aim.angle_to(v)) < arc * 0.5 + 0.3:
 				_break_urn(p)
-	# A well-timed strike knocks hexes out of the air.
+	# A well-timed strike sends hexes back the way they came, burning gold.
 	for s in shots:
 		if s["friendly"]:
 			continue
 		var v: Vector2 = s["pos"] - o
 		if v.length() < reach + 4.0 and absf(aim.angle_to(v)) < arc * 0.5 + 0.2:
-			s["life"] = 0.0
-			Sfx.play("clank", -2.0, 0.2)
+			_reflect(s)
 	if heavy and stats["wave"] > 0.0:
 		add_shot(o + aim * 10.0, aim * 200.0, true, dmg * 0.6 * stats["wave"], Color(1.0, 0.92, 0.7), 99, 0.75, 0.55)
 	pvel += aim * (75.0 if heavy else 40.0)
@@ -1373,6 +1382,99 @@ func _disintegrate(e) -> void:
 	tw.tween_property(ghost, "scale", Vector2(spr.scale.x * 1.35, spr.scale.y * 0.15), 0.2).set_ease(Tween.EASE_IN)
 	tw.tween_property(ghost, "modulate:a", 0.0, 0.2)
 	tw.chain().tween_callback(ghost.queue_free)
+
+
+## A strike that meets a foe mid-attack, or in the last instant of its wind-up,
+## turns the blow aside: the foe is staggered and Wren is spared.
+func _parry(e) -> bool:
+	var attacking: bool = e.state == "lunge" or e.state == "charge" or (e.state == "wind" and e.st < 0.14)
+	if not attacking or e.kind == "warden":
+		return false
+	e.hurt(stats["dmg"] * 1.5, aim * 260.0)
+	if not e.dead:
+		e.state = "rest"
+		e.st = 0.4
+		e.stun = 1.3
+		e.touch_cd = 0.8
+		e.sq_amp = 0.4
+	invuln = maxf(invuln, 0.35)
+	fx.impact(e.center() - aim * e.hit_r * 0.5, aim.angle(), Color(1.0, 0.85, 0.4), 1.9)
+	fx.ring(e.center(), 4.0, 30.0, 0.25, Color(1.0, 0.85, 0.45), false, 3.0)
+	hud.float_text(e.position + Vector2(0, -e.cy * 2.0 - 10.0), "PARRY", Color(1.0, 0.85, 0.4))
+	hud.flash_white(0.45)
+	slow_t = maxf(slow_t, 0.22)
+	Sfx.play("clank", 0.0)
+	Sfx.play("punch", -4.0)
+	_say_once("parry", "Meet them as they come, and they break on you.")
+	return true
+
+
+## A hex struck out of the air flies back at whoever sent it, hotter.
+func _reflect(s: Dictionary) -> void:
+	var spd: float = maxf(s["vel"].length() * 2.2, 200.0)
+	var dir := aim
+	# Aim it back at the nearest foe in front, if there is one.
+	var best = null
+	var bd := 220.0
+	for e in enemies:
+		if e.dead or not e.visible:
+			continue
+		var v: Vector2 = e.center() - s["pos"]
+		if v.length() < bd and aim.dot(v.normalized()) > 0.5:
+			bd = v.length()
+			best = e
+	if best != null:
+		dir = (best.center() - s["pos"]).normalized()
+	var gold := Color(1.0, 0.8, 0.3)
+	s["friendly"] = true
+	s["vel"] = dir * spd
+	s["dmg"] = stats["bolt_dmg"] * 1.5
+	s["col"] = gold
+	s["life"] = 1.4
+	s["hit"] = []
+	s["node"].modulate = gold
+	fx.impact(s["pos"], dir.angle(), gold, 1.1)
+	hitstop = maxf(hitstop, 0.05)
+	Sfx.play("clank", -2.0, 0.2)
+	_say_once("reflect", "Struck back. Let it learn what it threw.")
+
+
+func _update_gloam(dt: float) -> void:
+	if depth <= 0 or dead or god:
+		return
+	var k := oil / maxf(max_oil, 1.0)
+	var shades: Array = []
+	for e in enemies:
+		if e.kind == "gloam" and not e.dead:
+			shades.append(e)
+	if k > GLOAM_SAFE:
+		# With the lamp bright again, the shades come apart where they stand.
+		for e in shades:
+			e.dead = true
+			e.visible = false
+			_disintegrate(e)
+		gloam_t = 2.0
+		return
+	if k > GLOAM_LOW:
+		return
+	gloam_t -= dt
+	if gloam_t > 0.0 or shades.size() >= 3:
+		return
+	gloam_t = rng.randf_range(2.5, 4.0)
+	# Somewhere out past the light, on a tile that can reach her.
+	for i in 40:
+		var t := Vector2i(rng.randi_range(1, W - 2), rng.randi_range(1, H - 2))
+		var idx := t.y * W + t.x
+		if tiles[idx] != 1 or flow[idx] >= 9999:
+			continue
+		var d := (tile_center(t) - ppos).length()
+		if d < 85.0 or d > 150.0:
+			continue
+		var e = spawn_enemy("gloam", tile_center(t), -1)
+		e.awake = true
+		fx.spark(e.center(), Color(0.4, 0.25, 0.7, 0.8), 10, 40.0, 0.6, 2.0, -20.0)
+		_say_once("gloam", "The light's thinning. Something's moving out there.")
+		break
 
 
 func _purge() -> void:

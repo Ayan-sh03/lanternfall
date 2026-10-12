@@ -317,6 +317,136 @@ func view3d_test() -> void:
 	get_tree().quit()
 
 
+## Parry, struck-back hexes, and the lamp's oil: each checked for what it
+## should do, with screenshots of each.
+func mechanics_test() -> void:
+	main.slot = 9
+	await w(0.5)
+	main.hud._close_modal()
+	main.new_game(1)
+	await w(2.5)
+	var g = main.game
+	g.bot = true
+	g.bot_manual = true
+	g.hud.hint_t = 0.0
+	var fails := 0
+	for e in g.enemies:
+		e.dead = true
+		e.visible = false
+	for p in g.props:
+		if p["type"] == "stairs":
+			g.teleport(p["pos"] + Vector2(-30, 20))
+	await w(0.5)
+
+	# Parry: a husk caught mid-lunge is staggered, and Wren takes nothing.
+	g.aim = Vector2.RIGHT
+	var h = g.spawn_enemy("husk", g.ppos + Vector2(18, 0), 0)
+	h.awake = true
+	h.hp = 999.0
+	h.state = "lunge"
+	h.st = 0.2
+	h.dir = Vector2.LEFT
+	var hp0: int = g.hp
+	g.invuln = 0.0
+	g.atk_cd = 0.0
+	g.do_slash()
+	await shot("m_parry")
+	await w(0.3)
+	var ok: bool = h.stun > 0.0 and g.hp == hp0
+	print("MECH parry: stun %.2f, hp %d -> %d %s" % [h.stun, hp0, g.hp, "ok" if ok else "FAIL"])
+	if not ok:
+		fails += 1
+	# An ordinary strike on a foe that is not attacking is not a parry.
+	h.stun = 0.0
+	h.state = "chase"
+	g.atk_cd = 0.0
+	g.combo_t = 0.0
+	g.do_slash()
+	ok = h.stun <= 0.0
+	print("MECH no parry when idle: stun %.2f %s" % [h.stun, "ok" if ok else "FAIL"])
+	if not ok:
+		fails += 1
+	h.dead = true
+	h.visible = false
+	await w(1.2)
+
+	# A hex struck out of the air goes back, friendly, toward the cantor.
+	var c = g.spawn_enemy("cantor", g.ppos + Vector2(90, 0), 0)
+	c.awake = true
+	c.hp = 999.0
+	c.cd = 99.0
+	g.add_shot(g.pcenter() + Vector2(14, 0), Vector2(-92, 0), false, 1, Color(1.0, 0.3, 0.75))
+	var hex: Dictionary = g.shots[g.shots.size() - 1]
+	g.atk_cd = 0.0
+	g.combo_t = 0.0
+	g.aim = Vector2.RIGHT
+	g.do_slash()
+	ok = hex["friendly"] and hex["vel"].x > 0.0
+	print("MECH reflect: friendly %s vel %s %s" % [hex["friendly"], hex["vel"], "ok" if ok else "FAIL"])
+	if not ok:
+		fails += 1
+	var chp: float = c.hp
+	await w(0.1)
+	await shot("m_reflect")
+	await w(0.6)
+	ok = c.hp < chp
+	print("MECH reflected hex hits its caster: hp %.0f -> %.0f %s" % [chp, c.hp, "ok" if ok else "FAIL"])
+	if not ok:
+		fails += 1
+	c.dead = true
+	c.visible = false
+
+	# The lamp: a near-empty flask shrinks the light and calls gloams.
+	g.oil = g.max_oil
+	await w(0.3)
+	var full_r: float = g.plight.texture_scale
+	g.stats["oil_regen"] = 0.0
+	g.oil = 4.0
+	await w(0.3)
+	var low_r: float = g.plight.texture_scale
+	ok = low_r < full_r * 0.7
+	print("MECH light follows oil: %.2f -> %.2f %s" % [full_r, low_r, "ok" if ok else "FAIL"])
+	if not ok:
+		fails += 1
+	g.gloam_t = 0.0
+	var n := 0
+	for k in 40:
+		await w(0.25)
+		n = 0
+		for e in g.enemies:
+			if e.kind == "gloam" and not e.dead:
+				n += 1
+		if n >= 2:
+			break
+	ok = n >= 1
+	print("MECH gloams come when the oil is low: %d %s" % [n, "ok" if ok else "FAIL"])
+	if not ok:
+		fails += 1
+	g.god = false
+	g.cam_script = true
+	g.cam.zoom = Vector2(3.4, 3.4)
+	for e in g.enemies:
+		if e.kind == "gloam" and not e.dead:
+			g.teleport(e.position + Vector2(-26, 10))
+			break
+	await w(0.4)
+	await shot("m_gloam")
+	g.oil = g.max_oil
+	await w(0.3)
+	n = 0
+	for e in g.enemies:
+		if e.kind == "gloam" and not e.dead:
+			n += 1
+	ok = n == 0
+	print("MECH gloams melt when the lamp is full again: %d left %s" % [n, "ok" if ok else "FAIL"])
+	if not ok:
+		fails += 1
+	await shot("m_gloam_gone")
+	print("MECH %s" % ("PASS" if fails == 0 else "FAIL %d" % fails))
+	main.delete_save(9)
+	get_tree().quit()
+
+
 var probe_on := false
 var probe_frames := 0
 var probe_sum := 0.0
@@ -622,6 +752,9 @@ func run() -> void:
 		return
 	if OS.get_cmdline_user_args().has("--view3d"):
 		view3d_test()
+		return
+	if OS.get_cmdline_user_args().has("--mechanics"):
+		mechanics_test()
 		return
 	var hud = main.hud
 	main.slot = 9

@@ -112,6 +112,12 @@ func setup(game, k: String, pos: Vector2, r: int) -> void:
 			gl.scale = Vector2(0.6, 0.6)
 			gl.position = Vector2(0, -cy)
 			add_child(gl)
+		"gloam":
+			# A shade in a keeper's shape, all but its eyes swallowed by the dark.
+			_stats(10.0, 60.0, 4.5, 0, ["husk_idle"], Color(0.4, 0.25, 0.7))
+			prefix = "husk"
+			walk_fps = 9.0
+			base_mod = Color(0.1, 0.07, 0.18)
 		"warden":
 			_stats(950.0, 34.0, 7.0, 0, ["warden_idle"], Color(1.0, 0.55, 0.2))
 			prefix = "warden"
@@ -281,7 +287,7 @@ func tick(dt: float) -> void:
 		_animate()
 		return
 	match kind:
-		"husk":
+		"husk", "gloam":
 			_ai_husk(dt, to_p, dist)
 		"moth":
 			_ai_moth(dt, to_p, dist)
@@ -375,7 +381,7 @@ func _animate() -> void:
 ## pose if it is winding up or striking, a step of the walk if it is moving.
 func _frame_id() -> String:
 	match kind:
-		"husk":
+		"husk", "gloam":
 			if state == "wind":
 				return "husk_wind"
 			if state == "lunge":
