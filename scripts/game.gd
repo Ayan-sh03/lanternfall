@@ -1707,6 +1707,7 @@ func do_slash() -> void:
 		add_shot(o + aim * 10.0, aim * 200.0, true, dmg * 0.6 * stats["wave"], Color(1.0, 0.92, 0.7), 99, 0.75, 0.55)
 	pvel += aim * (75.0 if heavy else 40.0)
 	fx.slash(o + aim * 2.0, aim.angle(), reach, arc, Color(1.0, 0.7, 0.35, 0.95) if heavy else Color(1.0, 0.9, 0.65, 0.85), 0.2 if heavy else 0.15)
+	fx.slashes.back()["cw"] = swing_dir > 0.0
 	Sfx.play("slash3" if heavy else "slash", -4.0)
 	if hit > 0:
 		if heavy:

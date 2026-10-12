@@ -131,6 +131,24 @@ func run() -> void:
 	b.dead = true
 	b.visible = false
 
+	# The shapes: an ink maw, a cinder skull, a gloam bat.
+	var made: Array = []
+	for k in ["slime", "wisp", "moth"]:
+		var f = _foe(g, k, g.ppos + d * 30.0 + d.orthogonal() * (made.size() - 1) * 16.0)
+		f.awake = true
+		f.stun = 99.0
+		made.append(f)
+	await w(0.5)
+	var ok_all := true
+	for f in made:
+		ok_all = ok_all and v.actors.actors.has(f.get_instance_id()) and v.actors.skip.has(f.spr.get_instance_id())
+	check(ok_all, "ink, skulls and bats are shapes in 3D too")
+	await at.shot("md_shapes")
+	for f in made:
+		f.dead = true
+		f.visible = false
+	await w(0.3)
+
 	# Maren.
 	var m = _foe(g, "warden", g.ppos + d * 44.0)
 	await w(0.6)

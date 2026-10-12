@@ -24,6 +24,16 @@ skeleton_rogue.glbx    Skeleton_Rogue
   Source: https://github.com/KayKit-Game-Assets/KayKit-Character-Pack-Adventures-1.0
           https://github.com/KayKit-Game-Assets/KayKit-Character-Pack-Skeletons-1.0
 
+3D DUNGEON  (CC0, by Kay Lousberg, www.kaylousberg.com)          models/kit/
+------------------------------------------------------------------------
+Floor tiles, walls, pillars, torches, stairs, chests, barrels, crates, kegs,
+candles, banners, tables and rubble from KayKit Dungeon Remastered 1.0, each
+the pack's .glb renamed .glbx.
+  Source: https://github.com/KayKit-Game-Assets/KayKit-Dungeon-Remastered-1.0
+The ink maws, cinder skulls, gloam bats and Flit are built from simple shapes
+in code (scripts/creatures3d.gd); the cinder skull wears the skeleton
+minion's skull.
+
 
 FONTS  (SIL Open Font License 1.1)
 ----------------------------------

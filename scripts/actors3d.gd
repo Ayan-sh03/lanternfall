@@ -7,6 +7,9 @@ extends Node3D
 ## Foes without a model (bats, ink, cinder skulls) stay as sprites.
 
 const TS := 16.0
+const CreaturesS = preload("res://scripts/creatures3d.gd")
+## Creatures built from shapes in code (creatures3d.gd) rather than loaded.
+const PROC := ["slime", "slimelet", "wisp", "moth"]
 
 ## Model file, scale, and the meshes to hide (weapons the pack hands them).
 const MODELS := {
@@ -40,6 +43,9 @@ var game
 ## Entity instance id -> actor: {"root", "ap", "kind", "anim", "act", "act_t", "yaw", "flash"}
 var actors := {}
 var corpses: Array = []
+## The game's props drawn as kit models, by the instance id of their node.
+var props := {}
+var seal: OmniLight3D = null
 ## Sprites the 3D view must not draw because a model stands in for them.
 var skip := {}
 var wren_seen := {}
@@ -100,6 +106,8 @@ func _make(kind: String) -> Dictionary:
 	var shadows: bool = view.shadow_on and kind != "wren"
 	for m in meshes:
 		m.material_overlay = ov
+		# On their own light layer: the figure lights touch only them.
+		m.layers = 1 | 2
 		m.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON if shadows else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		if kind == "wren" and m.name != "Lantern":
 			_recolor(m)
@@ -221,23 +229,28 @@ func sync(dt: float) -> void:
 	skip[game.pglow.get_instance_id()] = true
 	# The foes that have a model.
 	for e in game.enemies:
-		if not MODELS.has(e.kind) or not is_instance_valid(e):
+		if not is_instance_valid(e) or not (MODELS.has(e.kind) or PROC.has(e.kind)):
 			continue
 		var id: int = e.get_instance_id()
 		if e.dead:
 			continue
 		var a: Dictionary = actors.get(id, {})
 		if a.is_empty():
-			a = _make(e.kind)
+			a = _make_proc(e.kind) if PROC.has(e.kind) else _make(e.kind)
 			if a.is_empty():
 				continue
 			actors[id] = a
 			a["was_awake"] = e.awake
 		live[id] = true
-		_foe(a, e, dt)
+		if PROC.has(e.kind):
+			_proc(a, e, dt)
+		else:
+			_foe(a, e, dt)
 		skip[e.spr.get_instance_id()] = true
 		if e.trophy != null:
 			skip[e.trophy.get_instance_id()] = true
+	_props()
+	_flit(dt, live)
 	# Foes that are gone fall where they stood.
 	for id in actors.keys():
 		if live.has(id):
@@ -281,7 +294,7 @@ func _face(a: Dictionary, dir: Vector2, dt: float, rate: float = 14.0) -> void:
 
 
 func _flash(a: Dictionary, k: float, col: Color = Color(1, 1, 1)) -> void:
-	a["ov"].set_shader_parameter("col", Color(col.r, col.g, col.b, clampf(k, 0.0, 1.0) * 0.45))
+	a["ov"].set_shader_parameter("col", Color(col.r, col.g, col.b, clampf(k, 0.0, 1.0) * (0.22 if view.aaa else 0.45)))
 
 
 func _wren(a: Dictionary, dt: float) -> void:
@@ -430,8 +443,129 @@ func len_of(a: Dictionary, anim: String) -> float:
 	return a["ap"].get_animation(anim).length
 
 
+func _make_proc(kind: String) -> Dictionary:
+	var a: Dictionary
+	match kind:
+		"slime", "slimelet":
+			a = CreaturesS.slime(kind == "slimelet")
+		"wisp":
+			a = CreaturesS.skull(view)
+		"moth":
+			a = CreaturesS.bat()
+		_:
+			return {}
+	var holder := Node3D.new()
+	holder.add_child(a["root"])
+	add_child(holder)
+	var ov := ShaderMaterial.new()
+	ov.shader = overlay_shader
+	var meshes: Array = []
+	_meshes(a["root"], meshes)
+	for m in meshes:
+		m.material_overlay = ov
+		m.layers = 1 | 2
+		m.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON if view.shadow_on or view.aaa else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	a["model"] = a["root"]
+	a["root"] = holder
+	a["kind"] = kind
+	a["ap"] = null
+	a["anim"] = ""
+	a["act"] = ""
+	a["act_t"] = 0.0
+	a["yaw"] = 0.0
+	a["ov"] = ov
+	a["t"] = 0.0
+	return a
+
+
+## Shapes have no animations of their own: they are moved here, from what
+## the flat sprite is doing (its squash, its hover, its wind-up).
+func _proc(a: Dictionary, e, dt: float) -> void:
+	a["t"] += dt
+	var t: float = a["t"]
+	var h: float = 0.0
+	if e.hover > 0.0:
+		h = (e.hover + (sin(e.anim * 5.0 + e.seed_f) * 1.5)) * view.K / TS
+	a["root"].position = view.to3(e.position) + Vector3(0, h, 0)
+	a["root"].visible = e.visible
+	# The flat sprite's squash and stretch, carried over.
+	var sq := Vector2.ONE
+	if e.base_scale != Vector2.ZERO:
+		sq = e.spr.scale / e.base_scale
+	var body: Node3D = a["body"]
+	match e.kind:
+		"slime", "slimelet":
+			var hop := 0.0
+			if e.state == "hop":
+				hop = sin(clampf(1.0 - e.st / 0.3, 0.0, 1.0) * PI) * 0.28
+			body.position.y = hop
+			body.scale = Vector3(sq.x, sq.y * (1.0 + hop * 0.6), sq.x)
+		"wisp":
+			body.position.y = 0.1 * sin(t * 3.0)
+			body.rotation.y = sin(t * 1.3) * 0.4
+			var grow: float = e.spr.scale.x if e.state == "fuse" else 1.0
+			body.scale = Vector3.ONE * 0.55 * grow
+			a["fire"].speed_scale = 1.8 if e.state == "fuse" else 1.0
+		"moth":
+			for wg in a["wings"]:
+				wg[0].rotation.z = wg[1] * (0.25 + 0.75 * sin(t * 22.0 + e.seed_f))
+			body.rotation.x = 0.25
+	var to_p: Vector2 = game.ppos - e.position
+	if e.awake:
+		_face(a, e.vel if e.vel.length() > 5.0 else to_p, dt, 10.0)
+	var fl: float = e.flash
+	var tint := Color(1, 1, 1)
+	if e.state == "fuse" and int(e.anim * 16.0) % 2 == 0:
+		fl = maxf(fl, 0.6)
+		tint = Color(1.0, 0.5, 0.2)
+	_flash(a, fl, tint)
+
+
+## Flit flies about Wren's lantern as a pale moth with beating wings.
+func _flit(dt: float, live: Dictionary) -> void:
+	var m = game.moth
+	if m == null or not is_instance_valid(m):
+		return
+	live[-1] = true
+	var a: Dictionary = actors.get(-1, {})
+	if a.is_empty():
+		var c := CreaturesS.moth()
+		var holder := Node3D.new()
+		holder.add_child(c["root"])
+		add_child(holder)
+		a = c
+		a["model"] = c["root"]
+		a["root"] = holder
+		a["kind"] = "flit"
+		a["t"] = 0.0
+		# Its own small light (the flat one is skipped along with its picture).
+		var l := OmniLight3D.new()
+		l.light_color = Color(0.8, 0.88, 1.0)
+		l.light_energy = 0.9
+		l.omni_range = 1.8
+		c["root"].add_child(l)
+		a["yaw"] = 0.0
+		actors[-1] = a
+	a["t"] += dt
+	skip[m.body.get_instance_id()] = true
+	var ground: Vector2 = m.position + Vector2(0, view.LIFT)
+	var height: float = (-m.body.position.y + view.LIFT) * view.K / TS
+	a["root"].position = view.to3(ground) + Vector3(0, height, 0)
+	a["root"].visible = m.visible
+	for wg in a["wings"]:
+		wg[0].rotation.z = wg[1] * (0.2 + 0.9 * absf(sin(a["t"] * 16.0)))
+	var prev: Vector3 = a.get("prev", a["root"].position)
+	var mv: Vector3 = a["root"].position - prev
+	a["prev"] = a["root"].position
+	_face(a, Vector2(mv.x, mv.z), dt, 12.0)
+
+
 ## A foe put out keeps its body a moment: it falls, then sinks away.
 func _fall(a: Dictionary) -> void:
+	if a.get("ap") == null:
+		# Shapes have no death to play: they simply go.
+		a["root"].queue_free()
+		return
 	if not a["root"].visible:
 		a["root"].queue_free()
 		return
@@ -456,6 +590,126 @@ func _corpses(dt: float) -> void:
 		i -= 1
 
 
+## Chests, braziers, urns and wayside lamps as kit models. Pages, plaques,
+## relics and the cage stay as their glowing pictures.
+func _props() -> void:
+	var live := {}
+	for p in game.props:
+		var node = p["node"]
+		if not is_instance_valid(node) or node.is_queued_for_deletion():
+			continue
+		var type: String = p["type"]
+		if type == "stairs" and view.kit_on:
+			# The seal on the stair: a red light down the stairwell, not a painted glow.
+			for c in node.get_children():
+				if c is Sprite2D:
+					skip[c.get_instance_id()] = true
+			if seal == null:
+				seal = OmniLight3D.new()
+				seal.light_color = Color(1.0, 0.15, 0.08)
+				seal.omni_range = 2.6
+				add_child(seal)
+			seal.position = view.to3(p["pos"]) + Vector3(0, -0.2, 0.3)
+			seal.visible = game.sealed
+			seal.light_energy = 2.2 + 0.6 * sin(game.anim_t * 4.0)
+			continue
+		if not ["chest", "brazier", "urn", "lamp"].has(type):
+			continue
+		var id: int = node.get_instance_id()
+		live[id] = true
+		var m: Dictionary = props.get(id, {})
+		if m.is_empty():
+			m = _make_prop(p)
+			if m.is_empty():
+				continue
+			props[id] = m
+		# The model stands in for the picture and its painted glows alike.
+		for c in node.get_children():
+			if c is Sprite2D:
+				skip[c.get_instance_id()] = true
+		var root: Node3D = m["root"]
+		root.visible = node.visible and game.seen[int(p["pos"].y / 16.0) * game.W + int(p["pos"].x / 16.0)] == 1
+		match type:
+			"chest":
+				var lid: Node3D = m.get("lid")
+				if lid != null:
+					var want: float = -1.9 if p["done"] else 0.0
+					lid.rotation.x = lerpf(lid.rotation.x, want, 0.15)
+			"lamp":
+				var lit: bool = p["done"]
+				m["glass"].material_override.emission_energy_multiplier = 3.0 if lit else 0.15
+				m["fire"].emitting = lit and root.visible
+			"brazier":
+				m["fire"].emitting = root.visible
+	for id in props.keys():
+		if not live.has(id):
+			props[id]["root"].queue_free()
+			props.erase(id)
+
+
+func _make_prop(p: Dictionary) -> Dictionary:
+	var type: String = p["type"]
+	var root := Node3D.new()
+	root.position = view.to3(p["pos"])
+	root.rotation.y = float((int(p["idx"]) * 37) % 8) * PI * 0.25 if type != "chest" else 0.0
+	add_child(root)
+	var m := {"root": root}
+	match type:
+		"chest":
+			var ps := scene("kit/chest_gold" if p.get("secret", false) else "kit/chest")
+			if ps == null:
+				root.queue_free()
+				return {}
+			var c: Node3D = ps.instantiate()
+			c.scale = Vector3.ONE * 0.42
+			root.add_child(c)
+			m["lid"] = c.find_child("chest_lid", true, false)
+		"brazier":
+			_kit_mesh(root, "torch_lit", 0.95)
+			var f = view.flame(0.9)
+			f.position = Vector3(0, 0.62, 0)
+			root.add_child(f)
+			m["fire"] = f
+		"urn":
+			_kit_mesh(root, "barrel_small", 0.46)
+		"lamp":
+			# A wayside lamp: a short stone post with a lantern on top.
+			var post := _kit_mesh(root, "column", 0.5)
+			if post != null:
+				post.scale = Vector3(0.45, 0.62, 0.45)
+			var glass := MeshInstance3D.new()
+			var bm := BoxMesh.new()
+			bm.size = Vector3(0.2, 0.26, 0.2)
+			glass.mesh = bm
+			var gm := StandardMaterial3D.new()
+			gm.albedo_color = Color(0.2, 0.15, 0.08)
+			gm.emission_enabled = true
+			gm.emission = Color(1.0, 0.75, 0.4)
+			glass.material_override = gm
+			glass.position = Vector3(0, 1.0, 0)
+			root.add_child(glass)
+			m["glass"] = glass
+			var f = view.flame(0.45)
+			f.position = Vector3(0, 1.02, 0)
+			root.add_child(f)
+			m["fire"] = f
+	for mi in root.find_children("*", "MeshInstance3D", true, false):
+		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON if view.shadow_on or view.aaa else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	return m
+
+
+func _kit_mesh(parent: Node3D, piece: String, sc: float) -> MeshInstance3D:
+	var DungeonS = view.DungeonS
+	if not DungeonS.meshes.has(piece):
+		return null
+	var mi := MeshInstance3D.new()
+	mi.mesh = DungeonS.meshes[piece]
+	mi.scale = Vector3.ONE * sc
+	mi.material_override = view.kit.mat_floor
+	parent.add_child(mi)
+	return mi
+
+
 func clear() -> void:
 	for id in actors:
 		actors[id]["root"].queue_free()
@@ -464,3 +718,6 @@ func clear() -> void:
 		a["root"].queue_free()
 	corpses.clear()
 	wren_seen.clear()
+	for id in props:
+		props[id]["root"].queue_free()
+	props.clear()

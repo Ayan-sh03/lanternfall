@@ -12,6 +12,7 @@ extends Node3D
 const Art = preload("res://scripts/art.gd")
 const Story = preload("res://scripts/story.gd")
 const ActorsS = preload("res://scripts/actors3d.gd")
+const DungeonS = preload("res://scripts/dungeon3d.gd")
 
 const TS := 16.0
 ## How steeply the camera looks down.
@@ -129,6 +130,7 @@ render_mode cull_disabled, unshaded;
 
 const SPRITE_ADD := "shader_type spatial;
 render_mode cull_disabled, unshaded, blend_add, depth_draw_never;
+uniform float hdr = 1.0;
 uniform sampler2D tex : source_color, filter_linear;
 uniform vec4 modulate : source_color = vec4(1.0);
 uniform bool flip = false;
@@ -136,7 +138,7 @@ uniform bool flip = false;
 void fragment() {
 	vec4 c = texture(tex, UV) * modulate;
 	float f = texture(lf_fog, NODE_POSITION_WORLD.xz / lf_size).a;
-	ALBEDO = c.rgb * (1.0 - f);
+	ALBEDO = c.rgb * (1.0 - f) * hdr;
 	ALPHA = c.a;
 }
 "
@@ -153,11 +155,27 @@ void fragment() {
 }
 "
 
+## Glowing effects. UV2.x picks how a piece is shaded: 0 flat, 1 a soft
+## round spark (UV across it), 2 a staff sweep (UV.x along the swing, 1 at
+## the leading edge; UV.y across it, 1 at the rim). hdr lifts them above white
+## on the renderer that blooms.
 const FX_ADD := "shader_type spatial;
 render_mode cull_disabled, unshaded, blend_add, depth_draw_never;
+uniform float hdr = 1.0;
 void fragment() {
-	ALBEDO = COLOR.rgb;
-	ALPHA = COLOR.a;
+	vec3 c = COLOR.rgb;
+	float a = COLOR.a;
+	if (UV2.x > 0.5 && UV2.x < 1.5) {
+		float r = length(UV * 2.0 - 1.0);
+		a *= clamp(1.0 - r * r, 0.0, 1.0);
+	} else if (UV2.x > 1.5) {
+		float lead = pow(UV.x, 1.4);
+		float rim = smoothstep(0.35, 1.0, UV.y);
+		a *= lead * (0.18 + 0.82 * rim) * smoothstep(0.0, 0.15, 1.0 - UV.y + 0.15);
+		c = mix(c, vec3(1.0), smoothstep(0.8, 1.0, UV.y) * lead);
+	}
+	ALBEDO = c * hdr;
+	ALPHA = a;
 }
 "
 
@@ -245,6 +263,20 @@ var shadow_light: OmniLight3D = null
 ## with --billboards, which brings back the standing cut-outs.
 var actors
 var models_on := false
+## The dungeon built from the modular kit (dungeon3d.gd); off with --pixel3d,
+## which brings back the pixel-textured blocks.
+var kit
+var kit_on := false
+var torch_lights: Array = []
+var candle_fires: Array = []
+## True on the Forward+ (Vulkan / Direct3D) renderer: volumetric fog, screen-
+## space shadowing and bounce light, real glow, shadows from every torch.
+## The phone and compatibility builds keep the lighter look.
+var aaa := false
+## Light for the figures alone: a soft fill from the camera's side and a cool
+## rim from behind, so they read against the dark without lifting the dungeon.
+var fill: DirectionalLight3D
+var rim: DirectionalLight3D
 ## The camera can be turned around Wren and drawn in or out.
 var yaw := 0.0
 var yaw_to := 0.0
@@ -286,6 +318,9 @@ func _ready() -> void:
 	e.ambient_light_color = game.AMBIENT
 	e.ambient_light_energy = 1.0
 	e.tonemap_mode = Environment.TONE_MAPPER_LINEAR
+	aaa = RenderingServer.get_rendering_device() != null and not OS.get_cmdline_user_args().has("--lowfx")
+	if aaa:
+		_grade(e)
 	env = WorldEnvironment.new()
 	env.environment = e
 	add_child(env)
@@ -294,6 +329,7 @@ func _ready() -> void:
 	fx_inst = MeshInstance3D.new()
 	fx_inst.mesh = fx_mesh
 	fx_inst.material_override = _mat("fx_add", FX_ADD)
+	fx_inst.material_override.set_shader_parameter("hdr", 2.6 if aaa else 1.0)
 	fx_inst.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(fx_inst)
 	decal_inst = MeshInstance3D.new()
@@ -323,12 +359,158 @@ func _ready() -> void:
 	rect.material = bm
 	bloom.add_child(rect)
 	add_child(bloom)
+	fill = DirectionalLight3D.new()
+	fill.light_cull_mask = 2
+	fill.light_color = Color(1.0, 0.9, 0.8)
+	fill.light_energy = 0.55 if aaa else 0.35
+	fill.light_specular = 0.2
+	add_child(fill)
+	rim = DirectionalLight3D.new()
+	rim.light_cull_mask = 2
+	rim.light_color = Color(0.55, 0.7, 1.0)
+	rim.light_energy = 1.6 if aaa else 0.8
+	rim.light_specular = 1.0
+	add_child(rim)
+	# Light for the figures only, never the haze in the air.
+	fill.light_volumetric_fog_energy = 0.0
+	rim.light_volumetric_fog_energy = 0.0
 	actors = ActorsS.new()
 	actors.view = self
 	actors.game = game
 	add_child(actors)
 	models_on = not OS.get_cmdline_user_args().has("--billboards") and ActorsS.available()
+	kit_on = not OS.get_cmdline_user_args().has("--pixel3d") and DungeonS.load_kit()
+	kit = DungeonS.new()
+	kit.game = game
+	add_child(kit)
+	_make_dust()
+	if aaa:
+		post = CanvasLayer.new()
+		post.layer = 5
+		var pr := ColorRect.new()
+		pr.set_anchors_preset(Control.PRESET_FULL_RECT)
+		pr.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		post_mat = _mat("post", POST)
+		pr.material = post_mat
+		post.add_child(pr)
+		add_child(post)
+		if OS.get_cmdline_user_args().has("--nopost"):
+			post.visible = false
+		# A shallow depth of field: the far side of the room softens a touch.
+		cam_attr = CameraAttributesPractical.new()
+		# Off unless asked for: at this camera height it softened Wren as well.
+		cam_attr.dof_blur_far_enabled = OS.get_cmdline_user_args().has("--dof")
+		cam_attr.dof_blur_far_transition = 7.0
+		cam_attr.dof_blur_amount = 0.05
+		cam.attributes = cam_attr
+		get_viewport().msaa_3d = Viewport.MSAA_2X
+		get_viewport().screen_space_aa = Viewport.SCREEN_SPACE_AA_FXAA
 	set_active(active)
+
+
+## The last touch on the finished picture: a vignette, a little fringing of
+## colour toward the corners as a real lens has, and fine moving film grain.
+const POST := "shader_type canvas_item;
+uniform sampler2D scr : hint_screen_texture, filter_linear;
+uniform float t = 0.0;
+void fragment() {
+	vec2 uv = SCREEN_UV;
+	vec2 c = uv - 0.5;
+	float d = dot(c, c);
+	float ca = 0.006 * d;
+	vec3 col;
+	col.r = texture(scr, uv + c * ca).r;
+	col.g = texture(scr, uv).g;
+	col.b = texture(scr, uv - c * ca).b;
+	col *= 1.0 - smoothstep(0.12, 0.6, d) * 0.6;
+	float n = fract(sin(dot(floor(FRAGCOORD.xy) + vec2(t * 61.0, t * 17.0), vec2(12.9898, 78.233))) * 43758.5453);
+	col += (n - 0.5) * 0.028;
+	COLOR = vec4(col, 1.0);
+}
+"
+
+var post: CanvasLayer
+var post_mat: ShaderMaterial
+var dust: CPUParticles3D
+var cam_attr: CameraAttributesPractical
+
+
+## Specks of dust drifting in the air around Wren, catching the light.
+func _make_dust() -> void:
+	dust = CPUParticles3D.new()
+	var q := QuadMesh.new()
+	q.size = Vector2(0.035, 0.035)
+	var dm := StandardMaterial3D.new()
+	# Lit, not glowing: dust only shows where a lamp's light falls on it.
+	dm.shading_mode = BaseMaterial3D.SHADING_MODE_PER_VERTEX
+	dm.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	dm.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	dm.billboard_mode = BaseMaterial3D.BILLBOARD_PARTICLES
+	dm.albedo_texture = Art.tex["glow"]
+	dm.vertex_color_use_as_albedo = true
+	q.material = dm
+	dust.mesh = q
+	dust.amount = 110
+	dust.lifetime = 9.0
+	dust.preprocess = 9.0
+	dust.local_coords = false
+	dust.emission_shape = CPUParticles3D.EMISSION_SHAPE_BOX
+	dust.emission_box_extents = Vector3(7.0, 1.2, 5.0)
+	dust.direction = Vector3(1, 0.3, 0)
+	dust.spread = 180.0
+	dust.gravity = Vector3(0, -0.015, 0)
+	dust.initial_velocity_min = 0.02
+	dust.initial_velocity_max = 0.09
+	dust.scale_amount_min = 0.6
+	dust.scale_amount_max = 1.6
+	var g := Gradient.new()
+	g.set_color(0, Color(1.0, 0.85, 0.6, 0.0))
+	g.add_point(0.2, Color(1.0, 0.85, 0.6, 0.9))
+	g.add_point(0.8, Color(1.0, 0.8, 0.55, 0.8))
+	g.set_color(g.get_point_count() - 1, Color(1.0, 0.8, 0.5, 0.0))
+	dust.color_ramp = g
+	add_child(dust)
+
+
+## The full look: filmic tonemapping, glow from anything bright, contact
+## shadows and bounce light, and a haze in the air that the lamps light up.
+func _grade(e: Environment) -> void:
+	e.background_color = Color(0.004, 0.004, 0.01)
+	e.ambient_light_color = Color(0.32, 0.36, 0.55)
+	e.ambient_light_energy = 0.22
+	e.tonemap_mode = Environment.TONE_MAPPER_ACES
+	e.tonemap_exposure = 1.15
+	e.tonemap_white = 6.0
+	e.glow_enabled = true
+	e.glow_normalized = false
+	e.glow_intensity = 0.9
+	e.glow_strength = 1.0
+	e.glow_bloom = 0.04
+	e.glow_hdr_threshold = 0.95
+	e.glow_hdr_scale = 2.0
+	e.glow_blend_mode = Environment.GLOW_BLEND_MODE_SCREEN
+	for i in 7:
+		e.set_glow_level(i, 1.0 if i in [1, 2, 3, 4] else 0.0)
+	e.ssao_enabled = true
+	e.ssao_radius = 0.9
+	e.ssao_intensity = 2.6
+	e.ssao_power = 1.6
+	e.ssao_detail = 0.6
+	e.ssil_enabled = true
+	e.ssil_radius = 3.0
+	e.ssil_intensity = 0.9
+	e.volumetric_fog_enabled = true
+	e.volumetric_fog_density = 0.035
+	e.volumetric_fog_albedo = Color(0.85, 0.8, 0.75)
+	e.volumetric_fog_emission = Color(0.0, 0.0, 0.0)
+	e.volumetric_fog_anisotropy = 0.45
+	e.volumetric_fog_length = 48.0
+	e.volumetric_fog_detail_spread = 2.0
+	e.volumetric_fog_ambient_inject = 0.15
+	e.adjustment_enabled = true
+	e.adjustment_brightness = 1.0
+	e.adjustment_contrast = 1.08
+	e.adjustment_saturation = 1.12
 
 
 func _mat(id: String, code: String) -> ShaderMaterial:
@@ -340,7 +522,8 @@ func _mat(id: String, code: String) -> ShaderMaterial:
 ## Bloom copies and shrinks the whole picture every frame: nothing for a
 ## desktop graphics card, but phones and the "fast" picture go without.
 func bloom_ok() -> bool:
-	return not OS.has_feature("mobile") and not game.main.profile["fast"] \
+	# Forward+ has real glow of its own; this one is for the other renderer.
+	return not aaa and not OS.has_feature("mobile") and not game.main.profile["fast"] \
 		and not OS.get_cmdline_user_args().has("--nobloom")
 
 
@@ -354,6 +537,8 @@ func set_active(on: bool) -> void:
 		cam.current = on
 	if bloom != null:
 		bloom.visible = on and bloom_ok()
+	if post != null:
+		post.visible = on and not OS.get_cmdline_user_args().has("--nopost")
 	if game != null:
 		game.visible = not on
 
@@ -422,6 +607,7 @@ func _process(dt: float) -> void:
 	if game.surf.version != surf_v:
 		_draw_surfaces()
 	_draw_cracks()
+	_flicker()
 
 
 func _sweep(pool: Dictionary) -> void:
@@ -477,6 +663,7 @@ func _mirror_sprite(s: Sprite2D, ground: Vector2, flat: bool, tint: Color) -> vo
 				mi.material_override = _mat("unlit", SPRITE_UNLIT)
 			"add":
 				mi.material_override = _mat("add", SPRITE_ADD)
+				mi.material_override.set_shader_parameter("hdr", 1.8 if aaa else 1.0)
 			_:
 				mi.material_override = _mat("blend", SPRITE_BLEND)
 		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
@@ -585,7 +772,17 @@ func _update_camera() -> void:
 	var back := Vector3(sin(yaw) * cos(PITCH), sin(PITCH), cos(yaw) * cos(PITCH))
 	cam.position = target + back * dist
 	cam.look_at(target, Vector3.UP)
+	if cam_attr != null:
+		cam_attr.dof_blur_far_distance = dist + 3.0
+	if post_mat != null:
+		post_mat.set_shader_parameter("t", fmod(game.anim_t, 100.0))
+	if dust != null:
+		dust.position = target + Vector3(0, 0.9, 0)
 	RenderingServer.global_shader_parameter_set("lf_camdir", Vector2(sin(yaw), cos(yaw)))
+	# Fill comes from over the camera's shoulder; rim from the far side, high.
+	fill.global_transform = Transform3D(Basis.looking_at(-back + Vector3(0.3, 0, 0), Vector3.UP), Vector3.ZERO)
+	var behind := Vector3(-back.x, 0.0, -back.z).normalized()
+	rim.global_transform = Transform3D(Basis.looking_at(-(behind + Vector3(0, 1.1, 0)).normalized(), Vector3.UP), Vector3.ZERO)
 
 
 ## Turning and zooming: drag with the middle button, or hold [ and ] to turn;
@@ -625,6 +822,23 @@ func _build_map() -> void:
 	for l in secret_lights:
 		l.queue_free()
 	secret_lights.clear()
+	for t in torch_lights:
+		t["light"].queue_free()
+		t["fire"].queue_free()
+	torch_lights.clear()
+	for f in candle_fires:
+		f.queue_free()
+	candle_fires.clear()
+	if kit_on:
+		kit.build()
+		for t in kit.torches:
+			_torch(t)
+		for c in kit.candles:
+			var f := flame(0.28)
+			f.amount = 8
+			f.position = c
+			add_child(f)
+			candle_fires.append(f)
 	for sc in game.secrets:
 		if sc["open"]:
 			continue
@@ -635,7 +849,7 @@ func _build_map() -> void:
 		l.omni_range = 3.8
 		l.omni_attenuation = 1.3
 		l.light_specular = 0.0
-		l.position = Vector3(c.x + 0.5, WALL_H + 0.3, c.y + 0.5)
+		l.position = Vector3(c.x + 0.5, wall_h() + 0.3, c.y + 0.5)
 		add_child(l)
 		secret_lights.append(l)
 	for c in map_node.get_children():
@@ -661,9 +875,11 @@ func _build_map() -> void:
 			var any := false
 			for y in range(cy, mini(cy + CHUNK, H)):
 				for x in range(cx, mini(cx + CHUNK, W)):
-					if Vector2i(x, y) == game.stairs_tile:
+					if Vector2i(x, y) == game.stairs_tile and not kit_on:
 						_stairwell(st, x, y, aw, ah)
 						any = true
+					elif kit_on:
+						continue
 					elif _tile(x, y) == 1:
 						_floor(st, x, y, aw, ah)
 						any = true
@@ -934,9 +1150,20 @@ func _fx3(p: Vector2, h: float = LIFT) -> Vector3:
 
 func _tri(m: ImmediateMesh, a: Vector3, b: Vector3, c: Vector3, col: Color) -> void:
 	m.surface_set_color(col)
+	m.surface_set_uv(Vector2(0.5, 0.5))
+	m.surface_set_uv2(Vector2.ZERO)
 	m.surface_add_vertex(a)
 	m.surface_add_vertex(b)
 	m.surface_add_vertex(c)
+
+
+## A quad with its own UVs and shading mode (see FX_ADD).
+func _quad_uv(m: ImmediateMesh, v: Array, uv: Array, col: Color, mode: float) -> void:
+	m.surface_set_color(col)
+	m.surface_set_uv2(Vector2(mode, 0.0))
+	for i in [0, 1, 2, 0, 2, 3]:
+		m.surface_set_uv(uv[i])
+		m.surface_add_vertex(v[i])
 
 
 func _quad_fx(m: ImmediateMesh, a: Vector3, b: Vector3, c: Vector3, d: Vector3, col: Color) -> void:
@@ -968,14 +1195,14 @@ func _draw_fx() -> void:
 	# becomes a real rise into the air.
 	for p in fx.parts:
 		var k: float = p["l"] / p["m"]
-		var sz: float = p["s"] * (0.5 + 0.5 * k) / TS * 0.5
+		var sz: float = p["s"] * (0.5 + 0.5 * k) / TS * 0.95
 		var c: Color = p["c"]
 		var pos: Vector2 = p["p"]
 		var o: Vector2 = p.get("o", pos)
 		var h := maxf(1.0, LIFT + (o.y - pos.y))
 		var at := Vector3(pos.x / TS, h * K / TS, (o.y + LIFT) / TS)
-		_quad_fx(m, at - right * sz - up * sz, at + right * sz - up * sz, at + right * sz + up * sz, at - right * sz + up * sz,
-			Color(c.r, c.g, c.b, c.a * k))
+		_quad_uv(m, [at - right * sz - up * sz, at + right * sz - up * sz, at + right * sz + up * sz, at - right * sz + up * sz],
+			[Vector2(0, 1), Vector2(1, 1), Vector2(1, 0), Vector2(0, 0)], Color(c.r, c.g, c.b, c.a * k), 1.0)
 		any = true
 
 	# Staff sweeps: a crescent swung flat around Wren at waist height.
@@ -987,15 +1214,26 @@ func _draw_fx() -> void:
 		var o: Vector2 = sl["p"]
 		var c: Color = sl["c"]
 		var col := Color(c.r, c.g, c.b, c.a * k)
-		var segs := 12
+		var segs := 20
+		# The sweep is drawn as it happens: it grows from where the staff
+		# started to where it is now, brightest at the leading edge.
+		var cw: bool = sl.get("cw", true)
+		var pr := clampf((1.0 - k) * 2.6, 0.25, 1.0)
 		for j in segs:
 			var u0 := float(j) / segs
 			var u1 := float(j + 1) / segs
+			var s0 := u0 if cw else 1.0 - u0
+			var s1 := u1 if cw else 1.0 - u1
+			if minf(s0, s1) > pr:
+				continue
 			var d0 := Vector2.from_angle(a_start + arc * u0)
 			var d1 := Vector2.from_angle(a_start + arc * u1)
-			var in0 := reach * (0.6 + 0.34 * pow(absf(u0 * 2.0 - 1.0), 1.5))
-			var in1 := reach * (0.6 + 0.34 * pow(absf(u1 * 2.0 - 1.0), 1.5))
-			_quad_fx(m, _fx3(o + d0 * reach, 5.0), _fx3(o + d1 * reach, 5.0), _fx3(o + d1 * in1, 5.0), _fx3(o + d0 * in0, 5.0), col)
+			var in0 := reach * (0.45 + 0.5 * pow(absf(u0 * 2.0 - 1.0), 1.5))
+			var in1 := reach * (0.45 + 0.5 * pow(absf(u1 * 2.0 - 1.0), 1.5))
+			var l0 := clampf(s0 / pr, 0.0, 1.0)
+			var l1 := clampf(s1 / pr, 0.0, 1.0)
+			_quad_uv(m, [_fx3(o + d0 * reach, 5.0), _fx3(o + d1 * reach, 5.0), _fx3(o + d1 * in1, 5.0), _fx3(o + d0 * in0, 5.0)],
+				[Vector2(l0, 1.0), Vector2(l1, 1.0), Vector2(l1, 0.0), Vector2(l0, 0.0)], col, 2.0)
 		any = true
 
 	# Chain lightning: a jagged ribbon between the two chests.
@@ -1162,7 +1400,7 @@ func _draw_cracks() -> void:
 		var p := mid + along * r.randf_range(-0.15, 0.15)
 		var steps := 7
 		for i in steps:
-			var q := mid + along * r.randf_range(-0.3, 0.3) + Vector3(0, WALL_H * (i + 1) / steps, 0)
+			var q := mid + along * r.randf_range(-0.3, 0.3) + Vector3(0, wall_h() * (i + 1) / steps, 0)
 			_crack_seg(p, q, along, 0.055, col)
 			_crack_seg(p, q, along, 0.14, Color(col.r, col.g * 0.8, col.b * 0.6, col.a * 0.25))
 			if r.randf() < 0.45:
@@ -1179,6 +1417,88 @@ func _draw_cracks() -> void:
 				Color(1.0, 0.6, 0.25, 0.12 * pulse))
 	if any:
 		crack_mesh.surface_end()
+
+
+## Torches flicker, and only those near Wren are lit at all.
+func _flicker() -> void:
+	var t: float = game.anim_t
+	var pp := to3(game.ppos)
+	for tl in torch_lights:
+		var l: OmniLight3D = tl["light"]
+		var near := l.position.distance_squared_to(pp) < 196.0
+		l.visible = near
+		tl["fire"].emitting = near
+		if near:
+			var s: float = tl["seed"]
+			l.light_energy = 1.35 + 0.18 * sin(t * 9.0 + s) + 0.1 * sin(t * 23.0 + s * 2.0)
+	for f in candle_fires:
+		f.emitting = f.position.distance_squared_to(pp) < 196.0
+
+
+func wall_h() -> float:
+	return DungeonS.WALL_H if kit_on else WALL_H
+
+
+## A torch on the wall: a flickering light, and real flames rising off it.
+func _torch(t: Dictionary) -> void:
+	var l := OmniLight3D.new()
+	l.light_color = Color(1.0, 0.58, 0.26)
+	l.light_energy = 1.4
+	l.omni_range = 4.6
+	l.omni_attenuation = 1.4
+	l.light_specular = 0.25
+	l.shadow_enabled = aaa
+	l.shadow_bias = 0.05
+	l.position = t["p"]
+	add_child(l)
+	var fire := flame(0.5)
+	fire.position = t["p"] + Vector3(0, -0.12, 0)
+	add_child(fire)
+	torch_lights.append({"light": l, "fire": fire, "seed": float(t["seed"])})
+
+
+static var flame_mat: StandardMaterial3D = null
+
+
+## A small fire that works on every renderer: soft additive sprites that rise,
+## brighten to yellow and fade out through orange to nothing.
+static func flame(size: float) -> CPUParticles3D:
+	if flame_mat == null:
+		flame_mat = StandardMaterial3D.new()
+		flame_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		flame_mat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+		flame_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		flame_mat.billboard_mode = BaseMaterial3D.BILLBOARD_PARTICLES
+		flame_mat.albedo_texture = Art.tex["glow"]
+		flame_mat.vertex_color_use_as_albedo = true
+		flame_mat.no_depth_test = false
+	var p := CPUParticles3D.new()
+	var q := QuadMesh.new()
+	q.size = Vector2(0.3, 0.3) * size
+	q.material = flame_mat
+	p.mesh = q
+	p.amount = 18
+	p.lifetime = 0.55
+	p.emission_shape = CPUParticles3D.EMISSION_SHAPE_SPHERE
+	p.emission_sphere_radius = 0.05 * size
+	p.direction = Vector3.UP
+	p.spread = 12.0
+	p.gravity = Vector3(0, 1.4, 0)
+	p.initial_velocity_min = 0.2
+	p.initial_velocity_max = 0.5
+	p.scale_amount_min = 0.7
+	p.scale_amount_max = 1.3
+	var sc := Curve.new()
+	sc.add_point(Vector2(0, 0.6))
+	sc.add_point(Vector2(0.25, 1.0))
+	sc.add_point(Vector2(1, 0.15))
+	p.scale_amount_curve = sc
+	var g := Gradient.new()
+	g.set_color(0, Color(1.0, 0.95, 0.6, 0.9))
+	g.add_point(0.35, Color(1.0, 0.55, 0.15, 0.8))
+	g.set_color(g.get_point_count() - 1, Color(0.6, 0.1, 0.02, 0.0))
+	p.color_ramp = g
+	return p
 
 
 func _crack_seg(a: Vector3, b: Vector3, along: Vector3, wdt: float, col: Color) -> void:
