@@ -1162,7 +1162,7 @@ func _town_card(l: Dictionary) -> Control:
 	var cost := int(l["cost"])
 	var afford: bool = int(main.profile["embers"]) >= cost
 	var b := Button.new()
-	b.custom_minimum_size = Vector2(390, 128)
+	b.custom_minimum_size = Vector2(390, 150)
 	b.add_theme_stylebox_override("normal", _frame_sb("ui_btn_hot" if have else "ui_btn", 20))
 	b.add_theme_stylebox_override("hover", _frame_sb("ui_btn_hot", 20))
 	b.add_theme_stylebox_override("pressed", _frame_sb("ui_btn_down", 20))
@@ -1176,6 +1176,11 @@ func _town_card(l: Dictionary) -> Control:
 			show_town())
 	var hb := HBoxContainer.new()
 	_full(hb)
+	# Keep clear of the carved frame.
+	hb.offset_left = 14
+	hb.offset_right = -14
+	hb.offset_top = 12
+	hb.offset_bottom = -12
 	hb.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	hb.add_theme_constant_override("separation", 10)
 	b.add_child(hb)
@@ -1192,7 +1197,8 @@ func _town_card(l: Dictionary) -> Control:
 	v.alignment = BoxContainer.ALIGNMENT_CENTER
 	v.add_theme_constant_override("separation", 2)
 	v.add_child(_lbl(l["name"], 21, C_EMBER if have else C_PARCH, font_b))
-	var d := _wrapped(l["desc"], 15, C_DIM, 290.0)
+	var d := _wrapped(l["desc"], 15, C_DIM, 268.0)
+	d.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 	v.add_child(d)
 	var price := _lbl("LIT" if have else "%d embers" % cost, 18, C_EMBER if have else (C_TEAL if afford else Color(0.55, 0.4, 0.38)), font)
 	v.add_child(price)
@@ -1397,7 +1403,8 @@ func _process(dt: float) -> void:
 		sub_lbl.add_theme_color_override("font_color", s[2])
 	else:
 		sub_lbl.modulate.a = 0.0
-	sub_lbl.visible = sub_lbl.modulate.a > 0.0
+	# Under a full-screen choice or the death screen, in-world lines only clutter.
+	sub_lbl.visible = sub_lbl.modulate.a > 0.0 and modal == ""
 
 	if card_t > 0.0:
 		card_t -= dt
@@ -1411,7 +1418,7 @@ func _process(dt: float) -> void:
 	cap_box.modulate.a = clampf(cap_t * 3.0, 0.0, 1.0) if cap_a.text != "" else 0.0
 	cap_box.visible = cap_a.text != ""
 	depth_lbl.visible = not showcase
-	hint_lbl.visible = not showcase and hint_t > 0.0
+	hint_lbl.visible = not showcase and hint_t > 0.0 and modal == ""
 	mini.visible = not showcase
 	mini_bg.visible = not showcase
 

@@ -555,8 +555,14 @@ func progress_test() -> void:
 	pcheck(offered, "Wildfire is offered once Afterburn and Cinder Trail are held")
 	g.apply_boon("wildfire")
 	pcheck(int(pr["tally"].get("duos", 0)) == 1 and (pr["feats"] as Array).has("duo"), "taking a combined kindling counts as a deed")
-	var a = g.spawn_enemy("husk", g.ppos + Vector2(70, 0), 0)
-	var b = g.spawn_enemy("husk", g.ppos + Vector2(84, 0), 0)
+	# Along a line clear of walls, so nothing but the foes gets in the way.
+	var dir := Vector2.RIGHT
+	for cand in [Vector2.RIGHT, Vector2.LEFT, Vector2.DOWN, Vector2.UP]:
+		if g.los(g.pcenter(), g.pcenter() + cand * 100.0):
+			dir = cand
+			break
+	var a = g.spawn_enemy("husk", g.ppos + dir * 60.0, 0)
+	var b = g.spawn_enemy("husk", g.ppos + dir * 74.0, 0)
 	for e in [a, b]:
 		e.hp = 999.0
 		e.awake = true
@@ -567,21 +573,23 @@ func progress_test() -> void:
 	pcheck(b.burn_t > 0.0, "Wildfire spreads a burn to the foe beside")
 	g.apply_boon("starfall")
 	var n0: int = g.shots.size()
-	g.add_shot(a.center() - Vector2(8, 0), Vector2(200, 0), true, 5.0, Color(1, 0.6, 0.2))
-	await w(0.1)
+	g.add_shot(a.center() - dir * 6.0, dir * 200.0, true, 5.0, Color(1, 0.6, 0.2))
+	# One frame: the split bolts are short-lived with the second foe so near.
+	await get_tree().process_frame
+	await get_tree().process_frame
 	var splits := 0
 	for sh in g.shots:
 		if sh.get("split", false):
 			splits += 1
 	pcheck(splits >= 2, "Starfall breaks a bolt into two on a hit (%d)" % splits)
 	g.apply_boon("riposte")
+	g.teleport(a.position - dir * 18.0)
 	a.state = "lunge"
 	a.st = 0.2
 	a.stun = 0.0
 	a.touch_cd = 1.0
+	a.dir = -dir
 	g.aim = (a.center() - g.pcenter()).normalized()
-	g.teleport(a.position - Vector2(18, 0))
-	await w(0.05)
 	g.atk_cd = 0.0
 	g.do_slash()
 	pcheck(g.riposte_t > 0.0, "a parry with Riposte readies a sure strike")

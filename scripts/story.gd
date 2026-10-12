@@ -232,23 +232,23 @@ const DUO_COL := Color(0.85, 0.6, 1.0)
 ## helps every descent after it.
 const TOWN := [
 	{"id": "tinker", "name": "The Tinker's Lamp", "cost": 40, "icon": "heart2",
-		"desc": "The tinker patches your coat.\nStart each descent with one more heart."},
+		"desc": "The tinker patches your coat.\nStart with one more heart."},
 	{"id": "oil", "name": "The Oilmonger's Lamp", "cost": 40, "icon": "oil",
-		"desc": "A deeper flask, filled.\n+25 oil to start each descent."},
+		"desc": "A deeper flask, filled.\n+25 oil to start with."},
 	{"id": "smith", "name": "The Smith's Lamp", "cost": 60, "icon": "i_sword",
 		"desc": "The hook is ground keen.\n+10% strike damage."},
 	{"id": "chandler", "name": "The Chandler's Lamp", "cost": 60, "icon": "i_flame",
 		"desc": "Better oil, cleaner flame.\nEmber bolts cost 15 oil, not 18."},
 	{"id": "physician", "name": "The Physician's Lamp", "cost": 70, "icon": "heart2",
-		"desc": "Bandages in every pocket.\nThe fallen leave hearts more often."},
+		"desc": "Bandages in every pocket.\nFoes drop hearts more often."},
 	{"id": "watch", "name": "The Watch Lamp", "cost": 100, "icon": "i_lamp",
-		"desc": "The night watch lends a match.\nStart each descent with the spare match."},
+		"desc": "The night watch lends a match.\nStart with the spare match."},
 	{"id": "chapel", "name": "The Chapel Lamp", "cost": 120, "icon": "page",
-		"desc": "The chapel keeps Maren's notes.\nChoose from four kindlings, not three."},
+		"desc": "The chapel keeps Maren's notes.\nChoose from four kindlings."},
 	{"id": "belltower", "name": "The Bell Tower Lamp", "cost": 90, "icon": "i_eye",
-		"desc": "The bell rings true.\nOnce per depth, ask for a fresh choice of kindlings."},
+		"desc": "The bell rings true.\nA fresh choice, once per depth."},
 	{"id": "maren", "name": "Maren's Lamp", "cost": 200, "icon": "lamp1",
-		"desc": "Her window, lit again.\nThe wayside lamps heal you fully and refill your oil."},
+		"desc": "Her window, lit again.\nWayside lamps heal you fully."},
 ]
 
 
