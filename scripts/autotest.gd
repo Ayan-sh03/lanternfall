@@ -290,6 +290,28 @@ func view3d_test() -> void:
 		fails += 1
 		print("VIEW3D 2D view still drawn under 3D FAIL")
 	await shot("v_back")
+
+	# A kill, frame by frame: the impact, the white husk, the embers. With
+	# --2d it is shot in the flat view, for comparison.
+	if OS.get_cmdline_user_args().has("--2d"):
+		v.set_active(false)
+	for p in g.props:
+		if p["type"] == "stairs":
+			g.teleport(p["pos"] + Vector2(-30, 20))
+	g.cam_script = true
+	g.cam.zoom = Vector2(5.5, 5.5)
+	g.aim = Vector2.RIGHT
+	var foe = g.spawn_enemy("husk", g.ppos + Vector2(20, 4), 0)
+	foe.awake = true
+	foe.hp = 1.0
+	await w(0.3)
+	g.combo = 2
+	g.combo_t = 1.0
+	g.atk_cd = 0.0
+	g.do_slash()
+	for i in 5:
+		await shot("v_kill%d" % i)
+		await w(0.06 if i < 2 else 0.18)
 	print("VIEW3D %s" % ("PASS" if fails == 0 else "FAIL %d" % fails))
 	main.delete_save(9)
 	get_tree().quit()

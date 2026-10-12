@@ -58,6 +58,10 @@ var spawn_idx := -1
 ## Set for characters whose limbs are animated part by part (see Art._anim).
 var prefix := ""
 var walk_fps := 6.0
+## Squash and stretch when struck, springing back; scale before any squash.
+var sq_amp := 0.0
+var sq_t := 9.0
+var base_scale := Vector2.ZERO
 
 
 func setup(game, k: String, pos: Vector2, r: int) -> void:
@@ -218,6 +222,9 @@ func hurt(amount: float, kb: Vector2, col: Color = Color(1.0, 0.92, 0.65)) -> vo
 	hp -= amount
 	flash = 1.0
 	knock += kb / weight
+	# Heavier foes give less.
+	sq_amp = clampf(0.12 + amount * 0.008, 0.12, 0.34) / sqrt(weight)
+	sq_t = 0.0
 	if not awake:
 		wake()
 	g.hud.float_text(position + Vector2(randf_range(-4.0, 4.0), -cy * 2.0 - 2.0), str(maxi(1, roundi(amount))), col)
@@ -343,6 +350,14 @@ func _animate() -> void:
 	if mat != null:
 		mat.set_shader_parameter("flash", maxf(flash, blink))
 	spr.position.x = sin(anim * 70.0) * 0.8 if tele else 0.0
+	if base_scale == Vector2.ZERO:
+		base_scale = spr.scale
+	sq_t += get_process_delta_time()
+	var sq: float = g.squash_k(sq_t) * sq_amp
+	# Winding up, a foe draws itself tall: the tell before the blow.
+	if tele:
+		sq -= 0.07
+	spr.scale = base_scale * Vector2(1.0 + sq, 1.0 - sq * 0.85)
 	spr.position.y = -hover + (sin(anim * 5.0 + seed_f) * 1.5 if hover > 0.0 else 0.0)
 	spr.modulate = base_mod
 	if awake and state != "charge" and state != "lunge" and stun <= 0.0:

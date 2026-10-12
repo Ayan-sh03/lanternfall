@@ -59,6 +59,9 @@ var vig: ColorRect
 var fader: ColorRect
 var fade_cb := Callable()
 var hurt := 0.0
+## A brief white flash over the whole picture, for the heaviest blows.
+var flash_w := 0.0
+var flash_rect: ColorRect
 var floats: Array = []
 var say_q: Array = []
 var sub_t := 0.0
@@ -112,6 +115,13 @@ func _ready() -> void:
 	vmat.shader = sh
 	vig.material = vmat
 	root.add_child(vig)
+
+	flash_rect = ColorRect.new()
+	_full(flash_rect)
+	flash_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	flash_rect.color = Color(1.0, 0.96, 0.88, 0.0)
+	flash_rect.visible = false
+	root.add_child(flash_rect)
 
 	hud_group = Control.new()
 	_full(hud_group)
@@ -999,6 +1009,10 @@ func _opt_flip(k: String, b: Button) -> void:
 
 
 ## A short rumble on phones; calls that come too close together are dropped.
+func flash_white(a: float) -> void:
+	flash_w = maxf(flash_w, a)
+
+
 func buzz(ms: int) -> void:
 	if not touch or not main.profile["haptics"] or t - buzz_t < 0.07:
 		return
@@ -1136,6 +1150,9 @@ func _process(dt: float) -> void:
 	vmat.set_shader_parameter("hurt", red)
 	# Full-screen layers are only drawn while they have something to show.
 	vig.visible = red > 0.01
+	flash_w = maxf(0.0, flash_w - dt * 9.0)
+	flash_rect.color.a = flash_w * 0.2
+	flash_rect.visible = flash_w > 0.01 and in_game
 	hud_group.visible = in_game
 
 	for e in embers:

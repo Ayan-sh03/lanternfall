@@ -164,6 +164,13 @@ var cam_script := false
 ## Lets the trailer dress the practice hall in any depth's colours.
 var gallery_theme := ""
 var slow_t := 0.0
+## The camera's shove in the direction of a blow, easing back to centre.
+var cam_punch := Vector2.ZERO
+## Wren's squash and stretch: how hard, and how long since it began.
+var sq_amp := 0.0
+var sq_t := 9.0
+## The opaque pixels of each sprite frame, for breaking foes into embers.
+var pix_cache := {}
 
 var bot := false
 var bot_manual := false
@@ -962,6 +969,9 @@ func _update_player(dt: float) -> void:
 	elif moving:
 		pframe = "player_w%d" % (int(anim_t * 9.0) % 4)
 	pspr.texture = Art.tex[pframe]
+	sq_t += dt
+	var sq := squash_k(sq_t) * sq_amp
+	pspr.scale = Vector2(1.0 + sq, 1.0 - sq * 0.85)
 	pspr.flip_h = aim.x < 0.0
 	pemi.texture = Art.tex[pframe + "_e"]
 	pemi.flip_h = pspr.flip_h
@@ -1038,6 +1048,22 @@ func _bot_think() -> void:
 		cast_ward()
 
 
+## A springy squash that overshoots and settles: 1 at the start, wobbling to 0.
+static func squash_k(t: float) -> float:
+	return exp(-t * 11.0) * cos(t * 30.0)
+
+
+## Squash Wren: positive goes wide and short, negative tall and thin.
+func squash(amp: float) -> void:
+	sq_amp = amp
+	sq_t = 0.0
+
+
+## Shoves the camera along a direction; it springs back by itself.
+func punch(dir: Vector2, amt: float) -> void:
+	cam_punch += dir.normalized() * amt
+
+
 func try_dash() -> void:
 	if dead:
 		return
@@ -1052,6 +1078,7 @@ func try_dash() -> void:
 		dash_cd = stats["dash_cd"]
 	invuln = maxf(invuln, 0.3)
 	dash_hit.clear()
+	squash(0.32)
 	Sfx.play("dash", -5.0)
 	fx.spark(pcenter(), Color(0.5, 0.9, 1.0), 8, 50.0, 0.3, 2.0)
 
@@ -1075,17 +1102,27 @@ func do_slash() -> void:
 	atk_pose = 0.22
 	var o := pcenter()
 	var hit := 0
+	var crits := 0
+	var killed := 0
+	squash(0.16 if heavy else 0.09)
 	for e in enemies:
 		if e.dead:
 			continue
 		var v: Vector2 = e.center() - o
 		var d := v.length()
 		if d < reach + e.hit_r and (d < 9.0 or absf(aim.angle_to(v)) < arc * 0.5 + 0.2):
-			if rng.randf() < stats["crit"]:
+			var crit: bool = rng.randf() < stats["crit"]
+			if crit:
 				e.hurt(dmg * 2.0, aim * 170.0, Color(1.0, 0.55, 0.15))
 				fx.spark(e.center(), Color(1.0, 0.8, 0.3), 10, 110.0, 0.35, 2.0)
+				crits += 1
 			else:
 				e.hurt(dmg * rng.randf_range(0.9, 1.1), aim * (150.0 if heavy else 95.0))
+			# Where the staff meets the foe: on its near side, toward Wren.
+			var at: Vector2 = e.center() - v.normalized() * e.hit_r * 0.6
+			fx.impact(at, aim.angle(), e.tint, 1.25 if heavy or crit else 0.8)
+			if e.dead:
+				killed += 1
 			hit += 1
 	for p in props:
 		if p["type"] == "urn" and not p["done"]:
@@ -1109,6 +1146,13 @@ func do_slash() -> void:
 		if heavy:
 			kick(0.05)
 		hitstop = 0.08 if heavy else 0.04
+		# A blow that kills, or lands twice as hard, holds the frame a little longer.
+		if killed > 0 and (heavy or crits > 0):
+			hitstop = 0.12
+			hud.flash_white(0.6)
+		elif crits > 0:
+			hitstop = 0.1
+		punch(aim, 3.5 if heavy else 1.8)
 		add_shake(4.0 if heavy else 2.0)
 		oil = minf(max_oil, oil + stats["siphon"] * hit)
 
@@ -1155,6 +1199,8 @@ func hurt_player(amount: int, from: Vector2, kb: float = 170.0) -> bool:
 	flash = 1.0
 	pknock = (ppos - from).normalized() * kb
 	add_shake(5.0)
+	squash(-0.28)
+	punch(ppos - from, 4.0)
 	hitstop = 0.06
 	hud.hurt = 1.0
 	Sfx.play("sting", -5.0)
@@ -1236,7 +1282,8 @@ func enemy_died(e) -> void:
 	hitstop = maxf(hitstop, 0.05)
 	add_shake(2.5)
 	Sfx.play("kill", -4.0)
-	fx.spark(e.center(), e.tint, 16, 95.0, 0.5, 2.0)
+	fx.spark(e.center(), e.tint, 6, 95.0, 0.4, 2.0)
+	_disintegrate(e)
 	if decals.size() < 240:
 		# A ragged stain: a few overlapping blots rather than one clean disc.
 		for k in 4:
@@ -1266,6 +1313,66 @@ func enemy_died(e) -> void:
 	if e.kind == "warden":
 		_boss_fell(e)
 	_update_seal(false)
+
+
+## The opaque pixels of a sprite frame and their colours, read once and kept.
+func _pixels(tex: Texture2D) -> Array:
+	var id := tex.get_instance_id()
+	if pix_cache.has(id):
+		return pix_cache[id]
+	var out: Array = []
+	var img := tex.get_image()
+	if img != null:
+		for y in img.get_height():
+			for x in img.get_width():
+				var c := img.get_pixel(x, y)
+				if c.a > 0.5:
+					out.append([Vector2(x + 0.5, y + 0.5), c])
+	pix_cache[id] = out
+	return out
+
+
+## A fallen foe does not just vanish: its last frame flashes white and
+## collapses, and its own pixels come loose and drift up as embers.
+func _disintegrate(e) -> void:
+	var spr: Sprite2D = e.spr
+	if spr.texture == null:
+		return
+	var px := _pixels(spr.texture)
+	if px.is_empty():
+		return
+	var rect := spr.get_rect()
+	var xf := spr.global_transform
+	var n := mini(px.size(), 160 if e.kind == "warden" else 70)
+	var ember := Color(1.0, 0.55, 0.2)
+	for i in n:
+		var pick: Array = px[rng.randi() % px.size()]
+		var lp: Vector2 = pick[0]
+		if spr.flip_h:
+			lp.x = rect.size.x - lp.x
+		var wp: Vector2 = xf * (rect.position + lp)
+		var c: Color = pick[1]
+		# Each mote keeps a trace of the colour it was, but burns.
+		var col := c.lerp(ember, 0.45).lightened(0.25)
+		var out: Vector2 = (wp - e.center()).normalized()
+		var vel: Vector2 = out * rng.randf_range(12.0, 45.0) + Vector2(rng.randf_range(-8.0, 8.0), -rng.randf_range(15.0, 50.0))
+		fx.add_part(wp, e.position.y, vel, rng.randf_range(0.45, 1.1), rng.randf_range(1.2, 2.0), col, -55.0)
+	# The husk of it: a white silhouette that squashes flat and fades.
+	var ghost := Sprite2D.new()
+	ghost.texture = spr.texture
+	ghost.offset = spr.offset
+	ghost.flip_h = spr.flip_h
+	ghost.position = e.position
+	ghost.scale = spr.scale
+	var gm := ShaderMaterial.new()
+	gm.shader = Art.flash_shader
+	gm.set_shader_parameter("flash", 1.0)
+	ghost.material = gm
+	ents.add_child(ghost)
+	var tw := ghost.create_tween().set_parallel(true)
+	tw.tween_property(ghost, "scale", Vector2(spr.scale.x * 1.35, spr.scale.y * 0.15), 0.2).set_ease(Tween.EASE_IN)
+	tw.tween_property(ghost, "modulate:a", 0.0, 0.2)
+	tw.chain().tween_callback(ghost.queue_free)
 
 
 func _purge() -> void:
@@ -1336,6 +1443,7 @@ func _update_shots(dt: float) -> void:
 					continue
 				if (e.center() - pos).length() < e.hit_r + s["r"]:
 					e.hurt(s["dmg"], s["vel"].normalized() * 90.0)
+					fx.impact(pos, s["vel"].angle(), s["col"], 0.6)
 					if stats["burn"] > 0.0 and not e.dead:
 						e.burn_t = 3.0
 						e.burn_dps = stats["burn"]
@@ -1707,7 +1815,8 @@ func _update_camera(dt: float) -> void:
 		cam.zoom = Vector2(z, z)
 	cam.position = cam.position.lerp(target, 1.0 - exp(-dt * (4.5 if cine_t > 0.0 or talking else 9.0)))
 	shake = maxf(0.0, shake - dt * 22.0)
-	cam.offset = Vector2(rng.randf_range(-1.0, 1.0), rng.randf_range(-1.0, 1.0)) * shake
+	cam_punch = cam_punch.lerp(Vector2.ZERO, 1.0 - exp(-dt * 14.0))
+	cam.offset = Vector2(rng.randf_range(-1.0, 1.0), rng.randf_range(-1.0, 1.0)) * shake + cam_punch
 
 
 func _draw_decals() -> void:

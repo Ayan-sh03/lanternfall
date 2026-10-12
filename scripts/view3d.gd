@@ -46,6 +46,7 @@ global uniform vec3 lf_player;
 const MAP_SHADER := "shader_type spatial;
 render_mode cull_disabled, specular_disabled, diffuse_lambert;
 uniform sampler2D atlas : source_color, filter_nearest;
+uniform sampler2D atlas_n : hint_normal, filter_nearest;
 " + GLOBALS + BAYER + "
 varying vec3 wpos;
 varying vec3 wnrm;
@@ -64,6 +65,7 @@ void fragment() {
 		if (bayer4(FRAGCOORD.xy) < k * 0.92) discard;
 	}
 	ALBEDO = c * (1.0 - f);
+	NORMAL_MAP = texture(atlas_n, UV).rgb;
 	// Wall tops sit above every lamp, so give them a little light of their own
 	// or they read as holes in the world.
 	if (wnrm.y > 0.5 && wpos.y > 1.0) EMISSION = c * 0.55 * (1.0 - f);
@@ -90,13 +92,29 @@ void fragment() {
 }
 "
 
-## Lit sprites take light from every direction, as they did in 2D, rather than
-## only on the face turned toward the lamp.
+## Lit sprites carry a normal map made from their own outline (see _nmap), so
+## a lamp to one side catches that side of a cloak. The light wraps well round
+## the back, so nothing goes flat black just for standing past the lamp.
 const SPRITE_LIT := "shader_type spatial;
 render_mode cull_disabled, specular_disabled;
-" + SPRITE_HEAD + SPRITE_FRAG + "
+uniform sampler2D nmap : hint_normal, filter_nearest;
+" + SPRITE_HEAD + "
+void fragment() {
+	vec2 uv = UV;
+	if (flip) uv.x = 1.0 - uv.x;
+	vec4 c = texture(tex, uv);
+	if (c.a < 0.5) discard;
+	if (modulate.a < 0.99 && bayer4(FRAGCOORD.xy) > modulate.a) discard;
+	float f = texture(lf_fog, NODE_POSITION_WORLD.xz / lf_size).a;
+	ALBEDO = mix(c.rgb * modulate.rgb, vec3(1.0), flash) * (1.0 - f);
+	vec3 n = texture(nmap, uv).rgb;
+	if (flip) n.x = 1.0 - n.x;
+	NORMAL_MAP = n;
+	NORMAL_MAP_DEPTH = 1.0;
+}
 void light() {
-	DIFFUSE_LIGHT += LIGHT_COLOR * ATTENUATION / PI;
+	float wrap = clamp((dot(NORMAL, LIGHT) + 0.7) / 1.7, 0.0, 1.0);
+	DIFFUSE_LIGHT += LIGHT_COLOR * ATTENUATION / PI * (0.2 + 0.85 * wrap);
 }
 "
 
@@ -146,7 +164,31 @@ void fragment() {
 }
 "
 
+## Bloom: the bright parts of the finished picture, blurred by reading ever
+## smaller copies of the screen, laid back over it. Only light that is already
+## bright spills, so embers, eyes and the lantern glow and the rest stays crisp.
+const BLOOM := "shader_type canvas_item;
+uniform sampler2D scr : hint_screen_texture, filter_linear_mipmap;
+uniform float threshold = 0.62;
+uniform float strength = 0.8;
+vec3 bright(vec2 uv, float lod) {
+	vec3 c = textureLod(scr, uv, lod).rgb;
+	float l = max(c.r, max(c.g, c.b));
+	return c * max(l - threshold, 0.0) / max(l, 0.0001);
+}
+void fragment() {
+	vec2 uv = SCREEN_UV;
+	vec3 base = textureLod(scr, uv, 0.0).rgb;
+	// One look per level is enough: each smaller copy is already a blur, and
+	// the graphics chip smooths between its pixels for free.
+	vec3 b = bright(uv, 2.0) * 0.5 + bright(uv, 3.5) * 0.8 + bright(uv, 5.0) * 0.8 + bright(uv, 6.0) * 0.6;
+	COLOR = vec4(base + b * strength, 1.0);
+}
+"
+
 static var shaders := {}
+## Normal maps made from each sprite frame, by texture.
+static var nmaps := {}
 static var globals_made := false
 
 var game
@@ -166,6 +208,9 @@ var decal_inst: MeshInstance3D
 var decal_n := -1
 var seen := {}
 var order := 0
+var shadow_on := false
+var bloom: CanvasLayer
+var shadow_light: OmniLight3D = null
 
 
 static func _shader(id: String, code: String) -> Shader:
@@ -216,6 +261,18 @@ func _ready() -> void:
 	decal_inst.material_override = _mat("fx_mix", FX_MIX)
 	decal_inst.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(decal_inst)
+	shadow_on = not OS.has_feature("mobile") and not game.main.profile["fast"]
+	# Between the game (layer 0) and the HUD (layer 10), so text never blooms.
+	bloom = CanvasLayer.new()
+	bloom.layer = 5
+	var rect := ColorRect.new()
+	rect.set_anchors_preset(Control.PRESET_FULL_RECT)
+	rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var bm := ShaderMaterial.new()
+	bm.shader = _shader("bloom", BLOOM)
+	rect.material = bm
+	bloom.add_child(rect)
+	add_child(bloom)
 	set_active(active)
 
 
@@ -225,12 +282,21 @@ func _mat(id: String, code: String) -> ShaderMaterial:
 	return m
 
 
+## Bloom copies and shrinks the whole picture every frame: nothing for a
+## desktop graphics card, but phones and the "fast" picture go without.
+func bloom_ok() -> bool:
+	return not OS.has_feature("mobile") and not game.main.profile["fast"] \
+		and not OS.get_cmdline_user_args().has("--nobloom")
+
+
 ## Switches between this view and the original flat one, live, mid-run.
 func set_active(on: bool) -> void:
 	active = on
 	visible = on
 	if cam != null:
 		cam.current = on
+	if bloom != null:
+		bloom.visible = on and bloom_ok()
 	if game != null:
 		game.visible = not on
 
@@ -331,6 +397,9 @@ func _mirror_sprite(s: Sprite2D, ground: Vector2, flat: bool, tint: Color) -> vo
 	order += 1
 	var kind := _kind(s)
 	var mi: MeshInstance3D = sprites.get(id)
+	# Anything standing in Wren's light throws a shadow away from it, except
+	# Wren herself, who carries the lamp.
+	var casts: bool = shadow_on and not flat and (kind == "lit" or kind == "unlit") and ground != game.ppos
 	if mi == null:
 		mi = MeshInstance3D.new()
 		mi.mesh = quad
@@ -346,12 +415,23 @@ func _mirror_sprite(s: Sprite2D, ground: Vector2, flat: bool, tint: Color) -> vo
 		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		add_child(mi)
 		sprites[id] = mi
+		if casts:
+			# The visible card faces the camera; this one, seen only by the
+			# shadow, turns to face the lamp so the shadow has its full shape.
+			var sh := MeshInstance3D.new()
+			sh.mesh = quad
+			sh.material_override = mi.material_override
+			sh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_SHADOWS_ONLY
+			mi.add_child(sh)
+			mi.set_meta("shadow", sh)
 	var m: ShaderMaterial = mi.material_override
 	m.set_shader_parameter("tex", s.texture)
 	m.set_shader_parameter("modulate", tint)
 	m.set_shader_parameter("flip", s.flip_h)
 	if kind == "lit" and s.material is ShaderMaterial:
 		m.set_shader_parameter("flash", s.material.get_shader_parameter("flash"))
+	if kind == "lit":
+		m.set_shader_parameter("nmap", _nmap(s.texture))
 
 	var rect := s.get_rect()
 	var c: Vector2 = s.global_transform * rect.get_center()
@@ -378,6 +458,21 @@ func _mirror_sprite(s: Sprite2D, ground: Vector2, flat: bool, tint: Color) -> vo
 		# put them under the floor.
 		xf.origin = Vector3(c.x / TS, (ground.y - c.y + FOOT) * K / TS, ground.y / TS + order * 0.002)
 	mi.transform = xf
+	if mi.has_meta("shadow"):
+		var sh: MeshInstance3D = mi.get_meta("shadow")
+		sh.visible = not lies and shadow_light != null and shadow_light.visible
+		if sh.visible:
+			var to := Vector2(shadow_light.position.x - xf.origin.x, shadow_light.position.z - xf.origin.z)
+			if to.length() > 0.01:
+				var d := to.normalized()
+				var side := Vector3(d.y, 0.0, -d.x)
+				var sx := Transform3D()
+				sx.basis.x = (side * cos(r) + Vector3(0, -sin(r) * K, 0)) * w
+				sx.basis.y = (side * sin(r) + Vector3(0, cos(r) * K, 0)) * h
+				sx.basis.z = Vector3(d.x, 0.0, d.y)
+				sx.origin = xf.origin
+				# The child sits under the visible card; undo the card's own transform.
+				sh.transform = xf.affine_inverse() * sx
 
 
 func _mirror_light(l: PointLight2D, ground: Vector2) -> void:
@@ -392,12 +487,16 @@ func _mirror_light(l: PointLight2D, ground: Vector2) -> void:
 		lights[id] = o
 		# Only Wren's own lantern throws shadows: it is the one that matters,
 		# and phones and the "fast" picture go without.
-		o.shadow_enabled = l == game.plight and not OS.has_feature("mobile") and not game.main.profile["fast"]
+		o.shadow_enabled = l == game.plight and shadow_on
+		if l == game.plight:
+			shadow_light = o
 	var p := l.global_position
 	var hgt := maxf(6.0, ground.y - p.y + 4.0)
 	o.position = Vector3(p.x / TS, hgt * K / TS, ground.y / TS)
 	o.light_color = l.color
-	o.light_energy = l.energy * 1.6
+	# Wren's lamp is right beside her, so it is held back a little or her own
+	# cloak would glare.
+	o.light_energy = l.energy * (1.05 if l == game.plight else 1.6)
 	o.omni_range = l.texture_scale * 64.0 / TS * 1.15
 	o.visible = l.enabled
 
@@ -428,6 +527,7 @@ func _build_map() -> void:
 	var atlas := _atlas(theme)
 	var mat := _mat("map", MAP_SHADER)
 	mat.set_shader_parameter("atlas", ImageTexture.create_from_image(atlas))
+	mat.set_shader_parameter("atlas_n", ImageTexture.create_from_image(_atlas_normals(atlas)))
 	RenderingServer.global_shader_parameter_set("lf_fog", game.fog_tex)
 	RenderingServer.global_shader_parameter_set("lf_size", Vector2(game.W, game.H))
 	var aw := float(atlas.get_width())
@@ -452,6 +552,7 @@ func _build_map() -> void:
 						any = true
 			if not any:
 				continue
+			st.generate_tangents()
 			var mi := MeshInstance3D.new()
 			mi.mesh = st.commit()
 			mi.material_override = mat
@@ -505,6 +606,94 @@ func _atlas(theme: String) -> Image:
 				img.set_pixel((8 + v) * 16 + x, y, c)
 	img.fill_rect(Rect2i(11 * 16, 0, 16, 24), wall.darkened(0.15))
 	return img
+
+
+## A normal map for a sprite frame, worked out from its shape: each pixel's
+## height is how far it sits inside the outline, so a figure reads as rounded,
+## with a little of its own shading pressed in for surface detail.
+static func _nmap(tex: Texture2D) -> Texture2D:
+	var id := tex.get_instance_id()
+	if nmaps.has(id):
+		return nmaps[id]
+	var img := tex.get_image()
+	var w := img.get_width()
+	var h := img.get_height()
+	var far := 99.0
+	var d := PackedFloat32Array()
+	d.resize(w * h)
+	for y in h:
+		for x in w:
+			d[y * w + x] = far if img.get_pixel(x, y).a > 0.5 else 0.0
+	# Two sweeps give each pixel its distance to the nearest empty one.
+	for y in h:
+		for x in w:
+			var i := y * w + x
+			if d[i] == 0.0:
+				continue
+			var v := far
+			if x > 0: v = minf(v, d[i - 1] + 1.0)
+			else: v = 1.0
+			if y > 0: v = minf(v, d[i - w] + 1.0)
+			else: v = 1.0
+			if x > 0 and y > 0: v = minf(v, d[i - w - 1] + 1.41)
+			if x < w - 1 and y > 0: v = minf(v, d[i - w + 1] + 1.41)
+			d[i] = minf(d[i], v)
+	for y in range(h - 1, -1, -1):
+		for x in range(w - 1, -1, -1):
+			var i := y * w + x
+			if d[i] == 0.0:
+				continue
+			var v := d[i]
+			if x < w - 1: v = minf(v, d[i + 1] + 1.0)
+			else: v = 1.0
+			if y < h - 1: v = minf(v, d[i + w] + 1.0)
+			else: v = 1.0
+			if x < w - 1 and y < h - 1: v = minf(v, d[i + w + 1] + 1.41)
+			if x > 0 and y < h - 1: v = minf(v, d[i + w - 1] + 1.41)
+			d[i] = v
+	var hgt := PackedFloat32Array()
+	hgt.resize(w * h)
+	for y in h:
+		for x in w:
+			var i := y * w + x
+			if d[i] == 0.0:
+				continue
+			var c := img.get_pixel(x, y)
+			hgt[i] = sqrt(clampf(d[i] / 3.5, 0.0, 1.0)) + 0.18 * c.get_luminance()
+	var out := Image.create(w, h, false, Image.FORMAT_RGB8)
+	for y in h:
+		for x in w:
+			var i := y * w + x
+			var hl := hgt[y * w + maxi(x - 1, 0)]
+			var hr := hgt[y * w + mini(x + 1, w - 1)]
+			var hu := hgt[maxi(y - 1, 0) * w + x]
+			var hd := hgt[mini(y + 1, h - 1) * w + x]
+			# Image rows run down, normal-map green runs up.
+			var n := Vector3((hl - hr) * 1.6, (hd - hu) * 1.6, 1.0).normalized()
+			out.set_pixel(x, y, Color(n.x * 0.5 + 0.5, n.y * 0.5 + 0.5, n.z * 0.5 + 0.5))
+	var t := ImageTexture.create_from_image(out)
+	nmaps[id] = t
+	return t
+
+
+## A normal map for the floor and wall atlas: mortar and grout are dark, so
+## brightness stands in for height and every slab edge catches the light.
+func _atlas_normals(atlas: Image) -> Image:
+	var w := atlas.get_width()
+	var h := atlas.get_height()
+	var out := Image.create(w, h, false, Image.FORMAT_RGB8)
+	for y in h:
+		for x in w:
+			# Stay inside each 16-pixel cell so neighbouring tiles do not bleed.
+			var cx := int(x / 16.0) * 16
+			var ch := 24 if cx >= 8 * 16 else 16
+			var l := atlas.get_pixel(maxi(x - 1, cx), y).get_luminance()
+			var r := atlas.get_pixel(mini(x + 1, cx + 15), y).get_luminance()
+			var u := atlas.get_pixel(x, maxi(y - 1, 0)).get_luminance()
+			var dn := atlas.get_pixel(x, mini(y + 1, ch - 1)).get_luminance()
+			var n := Vector3((l - r) * 1.2, (dn - u) * 1.2, 1.0).normalized()
+			out.set_pixel(x, y, Color(n.x * 0.5 + 0.5, n.y * 0.5 + 0.5, n.z * 0.5 + 0.5))
+	return out
 
 
 func _hash(x: int, y: int) -> int:
@@ -704,6 +893,22 @@ func _draw_fx() -> void:
 			var wv := Vector3(0, 0.07, 0)
 			_quad_fx(m, prev - wv, cur - wv, cur + wv, prev + wv, Color(c.r, c.g, c.b, k * 0.9))
 			prev = cur
+		any = true
+
+	# Impact bursts face the camera, like the flash they are.
+	for im in fx.impacts:
+		var k: float = 1.0 - im["t"] / im["d"]
+		var c: Color = im["c"]
+		var col := Color(1, 1, 1, k).lerp(Color(c.r, c.g, c.b, k), clampf(1.0 - k * 1.6, 0.0, 1.0))
+		var o3 := _fx3(im["p"])
+		for sp in fx.impact_spikes(im):
+			var d := Vector2.from_angle(sp.x)
+			var dv: Vector3 = (right * d.x - up * d.y) / TS
+			var sv: Vector3 = (right * -d.y - up * d.x) / TS * sp.z * k
+			var tip: Vector3 = o3 + dv * sp.y * (0.55 + 0.45 * (1.0 - k))
+			_quad_fx(m, tip, o3 + sv, o3 - dv * 2.0, o3 - sv, col)
+		var cr: float = 4.0 * im["s"] * k / TS
+		_quad_fx(m, o3 - right * cr - up * cr, o3 + right * cr - up * cr, o3 + right * cr + up * cr, o3 - right * cr + up * cr, Color(1, 1, 1, k))
 		any = true
 
 	for wd in fx.wards:

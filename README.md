@@ -53,6 +53,8 @@ The game is drawn in 3D by default: the same dungeon, monsters and combat, seen 
 
 The game rules themselves are untouched and still run on the 2D tile grid. `scripts/view3d.gd` watches that state each frame and draws it again in 3D: tiles become floor slabs and brick walls, sprites stand up in the world as cut-outs, 2D lights become point lights, and effects such as sweeps and warning rings become geometry. Walls between the camera and Wren dissolve so she is never hidden.
 
+On top of that the 3D view adds bloom (bright embers, eyes and flames spill light), shadows thrown by every monster and prop away from Wren's lantern, and normal maps worked out from each sprite's outline so cloaks, bricks and slabs catch light from the side it comes from. Phones and the "fast" picture setting go without bloom and shadows; `--nobloom` turns bloom off on slow test machines.
+
 `godot --path . -- --autotest --view3d --shotdir=<dir>` checks the 3D view: that the mouse aims exactly where it points, that switching views works, and saves screenshots.
 
 ## Building
