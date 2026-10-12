@@ -120,10 +120,33 @@ Invoke-Godot @("--", "--autotest", "--wild", "--3d") "Check oil, fire, the snuff
 # The rigged 3D figures load, animate with what they are doing, and the
 # camera turns and zooms with aim and movement still true to the screen.
 Invoke-Godot @("--", "--autotest", "--models", "--3d") "Check the 3D figures and the turning camera"
-Invoke-Godot @("--export-release", "Windows Desktop", "build/Lanternfall.exe") "Export the Windows build"
-Invoke-Godot @("--export-release", "Android", "build/Lanternfall.apk") "Export the Android build"
-Invoke-Godot @("--export-release", "Windows Desktop 3D", "build/Lanternfall-3D.exe") "Export the Windows 3D build"
-Invoke-Godot @("--export-release", "Android 3D", "build/Lanternfall-3D.apk") "Export the Android 3D build"
+# Windows Defender scans each new file as Godot writes it, and with the 3D
+# models in the pack that can lock the half-written export ("Safe save
+# failed"). Keep it out of the build folders, and try an export again if it
+# still trips.
+try {
+	Add-MpPreference -ExclusionPath $build, $repo, $env:RUNNER_TEMP -ErrorAction Stop
+	Write-Host "Defender will not scan the build folders."
+} catch {
+	Write-Host "Could not add a Defender exclusion: $_"
+}
+function Export-Build([string]$Preset, [string]$Out, [string]$What) {
+	for ($try = 1; $try -le 3; $try++) {
+		try {
+			Invoke-Godot @("--export-release", $Preset, $Out) $What
+			return
+		} catch {
+			if ($try -eq 3) { throw }
+			Write-Host "::warning::$What failed (attempt $try), trying again: $_"
+			Remove-Item (Join-Path $repo ($Out -replace '\.(exe|apk)$', '.tmp')), (Join-Path $repo $Out) -ErrorAction SilentlyContinue
+			Start-Sleep -Seconds 5
+		}
+	}
+}
+Export-Build "Windows Desktop" "build/Lanternfall.exe" "Export the Windows build"
+Export-Build "Android" "build/Lanternfall.apk" "Export the Android build"
+Export-Build "Windows Desktop 3D" "build/Lanternfall-3D.exe" "Export the Windows 3D build"
+Export-Build "Android 3D" "build/Lanternfall-3D.apk" "Export the Android 3D build"
 
 # Godot can report success without writing a usable file, so look at the results.
 foreach ($f in $exes + $apks) {
