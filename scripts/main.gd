@@ -26,12 +26,15 @@ var touch := false
 var perf_ms := 0
 var perf_n := 0
 var perf_bad := 0
+## Draw the dungeon in 3D (F3 switches back to the flat view, live).
+var use_3d := true
 
 
 func _ready() -> void:
 	randomize()
 	Art.build()
 	get_window().title = "Lanternfall"
+	use_3d = not OS.get_cmdline_user_args().has("--2d")
 	touch = OS.has_feature("mobile") or OS.get_cmdline_user_args().has("--touch")
 	if touch:
 		# The HUD turns touches into clicks itself, one finger at a time.
@@ -73,6 +76,10 @@ func _input(ev: InputEvent) -> void:
 		if ev.physical_keycode == KEY_F11:
 			var full := DisplayServer.window_get_mode() == DisplayServer.WINDOW_MODE_FULLSCREEN
 			DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED if full else DisplayServer.WINDOW_MODE_FULLSCREEN)
+		elif ev.physical_keycode == KEY_F3:
+			use_3d = not use_3d
+			if game != null and game.view3d != null:
+				game.view3d.set_active(use_3d)
 		elif ev.physical_keycode == KEY_M:
 			profile["sound"] = not profile["sound"]
 			apply_options()

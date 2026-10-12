@@ -47,6 +47,14 @@ godot --path .
 
 Everything is loaded at run time, so there is no import step. All game code is in `scripts/`; the pixel art is drawn in code by `scripts/art.gd`.
 
+## 3D view (prototype)
+
+The game is drawn in 3D by default: the same dungeon, monsters and combat, seen from a tilted camera with real walls, lights and shadows. Press `F3` at any time to switch between the 3D and the original flat view, or start with `godot --path . -- --2d` to begin in 2D.
+
+The game rules themselves are untouched and still run on the 2D tile grid. `scripts/view3d.gd` watches that state each frame and draws it again in 3D: tiles become floor slabs and brick walls, sprites stand up in the world as cut-outs, 2D lights become point lights, and effects such as sweeps and warning rings become geometry. Walls between the camera and Wren dissolve so she is never hidden.
+
+`godot --path . -- --autotest --view3d --shotdir=<dir>` checks the 3D view: that the mouse aims exactly where it points, that switching views works, and saves screenshots.
+
 ## Building
 
 Every push to `main` is built by GitHub Actions (`.github/workflows/build.yml`), which exports the Windows `.exe` and the signed Android `.apk` and publishes them as a release. The scripts it runs are in `ci/`.

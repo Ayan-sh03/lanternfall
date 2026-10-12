@@ -6,6 +6,7 @@ const Dungeon = preload("res://scripts/dungeon.gd")
 const EnemyS = preload("res://scripts/enemy.gd")
 const FxS = preload("res://scripts/fx.gd")
 const Story = preload("res://scripts/story.gd")
+const View3DS = preload("res://scripts/view3d.gd")
 
 const TS := 16
 const AMBIENT := Color(0.14, 0.14, 0.23)
@@ -49,6 +50,8 @@ var ents: Node2D
 var over: Node2D
 var fx
 var fog_sprite: Sprite2D
+## The 3D view drawn over the same game; null when it is off.
+var view3d = null
 var ambient_node: CanvasModulate
 var cam: Camera2D
 var enemies: Array = []
@@ -177,6 +180,10 @@ func start(d: int, restore: Dictionary = {}, prepared: bool = false) -> void:
 	rng.randomize()
 	pad = hud.pad
 	_build_nodes()
+	view3d = View3DS.new()
+	view3d.game = self
+	view3d.active = main.use_3d
+	add_child(view3d)
 	if not restore.is_empty():
 		_apply_save(restore)
 	elif prepared:
@@ -665,6 +672,20 @@ func vis_at(p: Vector2) -> bool:
 	return vis[ty * W + tx] == 1
 
 
+## The map point under the cursor, whichever view is drawing.
+func mouse_world() -> Vector2:
+	if view3d != null and view3d.active:
+		return view3d.mouse_world()
+	return get_global_mouse_position()
+
+
+## Where a map point is drawn on screen, whichever view is drawing.
+func screen_pos(p: Vector2) -> Vector2:
+	if view3d != null and view3d.active:
+		return view3d.screen_pos(p)
+	return get_viewport().get_canvas_transform() * p
+
+
 func pcenter() -> Vector2:
 	return ppos + Vector2(0, -7)
 
@@ -891,7 +912,7 @@ func _update_player(dt: float) -> void:
 				want_bolt = pad.bolt or bolt_buf > 0.0
 			_touch_aim(mv, want_atk, want_bolt)
 		else:
-			var m := get_global_mouse_position() - pcenter()
+			var m := mouse_world() - pcenter()
 			if m.length() > 2.0:
 				aim = m.normalized()
 			if input_lock <= 0.0:

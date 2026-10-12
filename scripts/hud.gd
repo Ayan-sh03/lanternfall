@@ -567,7 +567,7 @@ func show_title() -> void:
 	cc.add_child(grid)
 	vb.add_child(cc)
 	vb.add_child(_spacer(8))
-	var k := _lbl("WASD move    Mouse aim    LMB strike    RMB bolt    Space dash    E interact    Q R F powers    F11 fullscreen    M mute", 20, C_DIM)
+	var k := _lbl("WASD move    Mouse aim    LMB strike    RMB bolt    Space dash    E interact    Q R F powers    F11 fullscreen    F3 2D / 3D    M mute", 20, C_DIM)
 	if touch:
 		k.text = "Left thumb moves    Hold STRIKE to fight    Drag off a stone to aim by hand"
 	k.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -1233,7 +1233,7 @@ func _process(dt: float) -> void:
 	var p = game.near_prop
 	if p != null and modal == "" and not game.dead:
 		prompt_lbl.text = ("" if touch else "[E]   ") + game.prompt_for(p)
-		var sp: Vector2 = game.get_viewport().get_canvas_transform() * (p["pos"] as Vector2)
+		var sp: Vector2 = game.screen_pos(p["pos"])
 		prompt_lbl.position = sp + Vector2(-180, -78) - hud_group.position
 		prompt_lbl.visible = true
 	else:
@@ -1377,10 +1377,9 @@ func _draw_icon(c: Control, id: String, o: Vector2, on: bool) -> void:
 func _draw_floats() -> void:
 	if game == null:
 		return
-	var xf: Transform2D = game.get_viewport().get_canvas_transform().translated(-hud_group.position)
 	for f in floats:
 		var k: float = f["t"] / 0.8
-		var sp: Vector2 = xf * (f["w"] as Vector2) + Vector2(0, -36.0 * k)
+		var sp: Vector2 = game.screen_pos(f["w"]) - hud_group.position + Vector2(0, -36.0 * k)
 		var c: Color = f["c"]
 		c.a = 1.0 - k * k
 		var s: String = f["s"]

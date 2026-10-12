@@ -218,6 +218,83 @@ func anim_shots() -> void:
 	get_tree().quit()
 
 
+## The 3D view: the stairwell, the same moment in both views, and a check that
+## the mouse aims where it points.
+func view3d_test() -> void:
+	main.slot = 9
+	await w(0.5)
+	main.hud._close_modal()
+	main.new_game(1)
+	await w(2.5)
+	var g = main.game
+	var v = g.view3d
+	g.bot = true
+	g.bot_manual = true
+	g.god = true
+	g.hud.hint_t = 0.0
+	var fails := 0
+
+	# Mouse aim: the map point the game reads under the cursor must be drawn
+	# exactly under the cursor, and Wren must aim toward the cursor on screen.
+	g.bot = false
+	for off in [Vector2(40, 0), Vector2(-25, 30), Vector2(10, -45), Vector2(-60, -20)]:
+		var want: Vector2 = g.pcenter() + off
+		get_viewport().warp_mouse(v.cam.unproject_position(Vector3(want.x / 16.0, v.LIFT * v.K / 16.0, (want.y + v.LIFT) / 16.0)))
+		await w(0.15)
+		# The camera leads toward the cursor, so check against where it is now.
+		var mp := get_viewport().get_mouse_position()
+		var got: Vector2 = g.mouse_world()
+		var back: Vector2 = v.cam.unproject_position(Vector3(got.x / 16.0, v.LIFT * v.K / 16.0, (got.y + v.LIFT) / 16.0))
+		var chest: Vector2 = v.cam.unproject_position(Vector3(g.ppos.x / 16.0, v.LIFT * v.K / 16.0, g.ppos.y / 16.0))
+		var ok := back.distance_to(mp) < 1.0
+		var on_screen := (mp - chest).normalized()
+		var aim_screen: Vector2 = (v.cam.unproject_position(Vector3((g.ppos.x + g.aim.x * 30.0) / 16.0, v.LIFT * v.K / 16.0, (g.ppos.y + g.aim.y * 30.0) / 16.0)) - chest).normalized()
+		var aims := aim_screen.dot(on_screen) > 0.995
+		if not (ok and aims):
+			fails += 1
+		print("AIM3D cursor %s reads %s, drawn at %s, aim off by %.1f deg %s" % [mp, got, back,
+			rad_to_deg(acos(clampf(aim_screen.dot(on_screen), -1.0, 1.0))), "ok" if ok and aims else "FAIL"])
+	g.bot = true
+
+	# The way down, close in.
+	for e in g.enemies:
+		e.dead = true
+		e.visible = false
+	for p in g.props:
+		if p["type"] == "stairs":
+			g.teleport(p["pos"] + Vector2(-22, 14))
+	g.cam_script = true
+	g.cam.zoom = Vector2(5, 5)
+	await w(0.8)
+	await shot("v_stairs")
+	g.cam_script = false
+
+	# One moment, both ways.
+	for p in g.props:
+		if p["type"] == "brazier":
+			g.teleport(p["pos"] + Vector2(0, 30))
+			break
+	await w(1.0)
+	await shot("v_3d")
+	main.use_3d = false
+	v.set_active(false)
+	await w(0.3)
+	await shot("v_2d")
+	if g.visible != true:
+		fails += 1
+		print("VIEW3D 2D view did not come back FAIL")
+	main.use_3d = true
+	v.set_active(true)
+	await w(0.3)
+	if g.visible:
+		fails += 1
+		print("VIEW3D 2D view still drawn under 3D FAIL")
+	await shot("v_back")
+	print("VIEW3D %s" % ("PASS" if fails == 0 else "FAIL %d" % fails))
+	main.delete_save(9)
+	get_tree().quit()
+
+
 var probe_on := false
 var probe_frames := 0
 var probe_sum := 0.0
@@ -520,6 +597,9 @@ func run() -> void:
 		return
 	if OS.get_cmdline_user_args().has("--quick"):
 		quick()
+		return
+	if OS.get_cmdline_user_args().has("--view3d"):
+		view3d_test()
 		return
 	var hud = main.hud
 	main.slot = 9

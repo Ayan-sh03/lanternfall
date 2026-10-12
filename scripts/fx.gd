@@ -27,14 +27,14 @@ func spark(pos: Vector2, col: Color, n: int = 6, spd: float = 60.0, life: float 
 		if parts.size() > 600:
 			return
 		var l := life * randf_range(0.6, 1.0)
-		parts.append({"p": pos, "v": Vector2.from_angle(randf() * TAU) * spd * randf_range(0.3, 1.0),
+		parts.append({"p": pos, "o": pos, "v": Vector2.from_angle(randf() * TAU) * spd * randf_range(0.3, 1.0),
 			"l": l, "m": l, "s": size, "c": col, "g": grav})
 
 
 func flame(pos: Vector2, col: Color = Color(1.0, 0.5, 0.12, 0.9)) -> void:
 	if parts.size() > 600:
 		return
-	parts.append({"p": pos + Vector2(randf_range(-2.5, 2.5), 0.0), "v": Vector2(randf_range(-5.0, 5.0), randf_range(-30.0, -14.0)),
+	parts.append({"p": pos + Vector2(randf_range(-2.5, 2.5), 0.0), "o": pos, "v": Vector2(randf_range(-5.0, 5.0), randf_range(-30.0, -14.0)),
 		"l": 0.5, "m": 0.5, "s": 2.2, "c": col, "g": -12.0})
 
 
