@@ -39,6 +39,9 @@ function New-Keystore([string]$Path, [string]$Alias, [string]$Pass) {
 
 # --- Tell this copy of Godot where the Android tools are -------------------------
 # Keys live in a temporary folder, never in -GodotDir: that folder is cached.
+# Safe save (write a .tmp, then rename it over the file) is off: on the CI runner
+# a scanner can hold the fresh .tmp open, the rename fails and the export with it
+# ("Safe save failed ... packtmp").
 $work = Join-Path ([IO.Path]::GetTempPath()) "lanternfall-ci"
 New-Item -ItemType Directory -Force $work, (Join-Path $GodotDir "editor_data") | Out-Null
 $debugKey = Join-Path $work "debug.keystore"
@@ -53,6 +56,7 @@ export/android/debug_keystore = "$(Slash $debugKey)"
 export/android/debug_keystore_user = "androiddebugkey"
 export/android/debug_keystore_pass = "android"
 export/windows/rcedit = "$(Slash (Join-Path $GodotDir "rcedit-x64.exe"))"
+filesystem/on_save/safe_save_on_backup_then_rename = false
 "@ | Set-Content -Encoding utf8 (Join-Path $GodotDir "editor_data\editor_settings-4.3.tres")
 
 # --- The key the APK is signed with ----------------------------------------------
