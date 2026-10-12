@@ -970,6 +970,11 @@ func run() -> void:
 	if OS.get_cmdline_user_args().has("--progress"):
 		progress_test()
 		return
+	if OS.get_cmdline_user_args().has("--showreel"):
+		var reel = load("res://scripts/showreel.gd").new()
+		reel.main = main
+		add_child(reel)
+		return
 	var hud = main.hud
 	main.slot = 9
 	main.delete_save(9)
