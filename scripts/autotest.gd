@@ -329,6 +329,7 @@ func mechanics_test() -> void:
 	g.bot = true
 	g.bot_manual = true
 	g.hud.hint_t = 0.0
+	g.hud.card_t = 0.0
 	var fails := 0
 	for e in g.enemies:
 		e.dead = true
@@ -350,6 +351,9 @@ func mechanics_test() -> void:
 	g.invuln = 0.0
 	g.atk_cd = 0.0
 	g.do_slash()
+	# Let the burst and the PARRY reach the screen before shooting it.
+	await get_tree().process_frame
+	await get_tree().process_frame
 	await shot("m_parry")
 	await w(0.3)
 	var ok: bool = h.stun > 0.0 and g.hp == hp0
@@ -370,18 +374,25 @@ func mechanics_test() -> void:
 	h.visible = false
 	await w(1.2)
 
-	# A hex struck out of the air goes back, friendly, toward the cantor.
-	var c = g.spawn_enemy("cantor", g.ppos + Vector2(90, 0), 0)
+	# A hex struck out of the air goes back, friendly, toward the cantor:
+	# put the cantor along a line with no wall in the way.
+	var dir := Vector2.RIGHT
+	for cand in [Vector2.RIGHT, Vector2.LEFT, Vector2.DOWN, Vector2.UP]:
+		if g.los(g.pcenter(), g.pcenter() + cand * 60.0):
+			dir = cand
+			break
+	var c = g.spawn_enemy("cantor", g.ppos + dir * 50.0, 0)
 	c.awake = true
 	c.hp = 999.0
 	c.cd = 99.0
-	g.add_shot(g.pcenter() + Vector2(14, 0), Vector2(-92, 0), false, 1, Color(1.0, 0.3, 0.75))
+	await get_tree().process_frame
+	g.add_shot(g.pcenter() + dir * 14.0, -dir * 92.0, false, 1, Color(1.0, 0.3, 0.75))
 	var hex: Dictionary = g.shots[g.shots.size() - 1]
 	g.atk_cd = 0.0
 	g.combo_t = 0.0
-	g.aim = Vector2.RIGHT
+	g.aim = dir
 	g.do_slash()
-	ok = hex["friendly"] and hex["vel"].x > 0.0
+	ok = hex["friendly"] and hex["vel"].dot(dir) > 0.0
 	print("MECH reflect: friendly %s vel %s %s" % [hex["friendly"], hex["vel"], "ok" if ok else "FAIL"])
 	if not ok:
 		fails += 1

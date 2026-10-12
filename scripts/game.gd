@@ -1461,20 +1461,28 @@ func _update_gloam(dt: float) -> void:
 	if gloam_t > 0.0 or shades.size() >= 3:
 		return
 	gloam_t = rng.randf_range(2.5, 4.0)
-	# Somewhere out past the light, on a tile that can reach her.
-	for i in 40:
-		var t := Vector2i(rng.randi_range(1, W - 2), rng.randi_range(1, H - 2))
-		var idx := t.y * W + t.x
-		if tiles[idx] != 1 or flow[idx] >= 9999:
-			continue
-		var d := (tile_center(t) - ppos).length()
-		if d < 85.0 or d > 150.0:
-			continue
-		var e = spawn_enemy("gloam", tile_center(t), -1)
-		e.awake = true
-		fx.spark(e.center(), Color(0.4, 0.25, 0.7, 0.8), 10, 40.0, 0.6, 2.0, -20.0)
-		_say_once("gloam", "The light's thinning. Something's moving out there.")
-		break
+	# Somewhere out past the light, on a tile that can reach her; in a cramped
+	# spot with nowhere that far, somewhere closer will do.
+	var far: Array = []
+	var near: Array = []
+	for y in range(maxi(1, ptile.y - 10), mini(H - 1, ptile.y + 11)):
+		for x in range(maxi(1, ptile.x - 10), mini(W - 1, ptile.x + 11)):
+			var idx := y * W + x
+			if tiles[idx] != 1 or flow[idx] >= 9999:
+				continue
+			var d := (tile_center(Vector2i(x, y)) - ppos).length()
+			if d >= 85.0 and d <= 150.0:
+				far.append(Vector2i(x, y))
+			elif d >= 50.0 and d < 85.0:
+				near.append(Vector2i(x, y))
+	var pool: Array = far if not far.is_empty() else near
+	if pool.is_empty():
+		return
+	var t: Vector2i = pool[rng.randi() % pool.size()]
+	var e = spawn_enemy("gloam", tile_center(t), -1)
+	e.awake = true
+	fx.spark(e.center(), Color(0.4, 0.25, 0.7, 0.8), 10, 40.0, 0.6, 2.0, -20.0)
+	_say_once("gloam", "The light's thinning. Something's moving out there.")
 
 
 func _purge() -> void:
