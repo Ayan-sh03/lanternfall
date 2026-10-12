@@ -26,15 +26,18 @@ var touch := false
 var perf_ms := 0
 var perf_n := 0
 var perf_bad := 0
-## Draw the dungeon in 3D (F3 switches back to the flat view, live).
-var use_3d := true
+## Draw the dungeon in 3D. The 3D builds start that way (their export preset
+## carries the "view3d" feature), the classic ones flat; --3d and --2d choose
+## when running from source, and F3 switches either way, live.
+var use_3d := false
 
 
 func _ready() -> void:
 	randomize()
 	Art.build()
 	get_window().title = "Lanternfall"
-	use_3d = not OS.get_cmdline_user_args().has("--2d")
+	use_3d = (OS.has_feature("view3d") or OS.get_cmdline_user_args().has("--3d")) \
+		and not OS.get_cmdline_user_args().has("--2d")
 	touch = OS.has_feature("mobile") or OS.get_cmdline_user_args().has("--touch")
 	if touch:
 		# The HUD turns touches into clicks itself, one finger at a time.

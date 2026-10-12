@@ -20,6 +20,11 @@ func w(sec: float) -> void:
 
 
 func shot(id: String) -> void:
+	# Without a screen (CI runs headless) frames are never drawn: just step one.
+	if DisplayServer.get_name() == "headless":
+		await get_tree().process_frame
+		print("SHOT ", id)
+		return
 	await RenderingServer.frame_post_draw
 	if dir != "":
 		get_viewport().get_texture().get_image().save_png(dir.path_join(id + ".png"))
@@ -224,6 +229,7 @@ func view3d_test() -> void:
 	main.slot = 9
 	await w(0.5)
 	main.hud._close_modal()
+	main.use_3d = true
 	main.new_game(1)
 	await w(2.5)
 	var g = main.game
@@ -455,7 +461,7 @@ func mechanics_test() -> void:
 	await shot("m_gloam_gone")
 	print("MECH %s" % ("PASS" if fails == 0 else "FAIL %d" % fails))
 	main.delete_save(9)
-	get_tree().quit()
+	get_tree().quit(1 if fails > 0 else 0)
 
 
 var probe_on := false

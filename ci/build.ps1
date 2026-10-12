@@ -1,5 +1,8 @@
-# Builds build\Lanternfall.exe and build\Lanternfall.apk with the self-contained
-# Godot that ci\fetch-godot.ps1 prepared in -GodotDir.
+# Builds build\Lanternfall.exe and build\Lanternfall.apk, and their 3D twins
+# build\Lanternfall-3D.exe and build\Lanternfall-3D.apk, with the self-contained
+# Godot that ci\fetch-godot.ps1 prepared in -GodotDir. The twins are the same
+# game started in the 3D view (their presets carry the "view3d" feature); the
+# 3D APK has its own package name, so both install side by side.
 #
 # The APK is signed with the key in ANDROID_KEYSTORE_BASE64 (plus
 # ANDROID_KEYSTORE_USER and ANDROID_KEYSTORE_PASSWORD) when those are set.
@@ -97,28 +100,40 @@ function Invoke-Godot([string[]]$GodotArgs, [string]$What) {
 
 $build = Join-Path $repo "build"
 New-Item -ItemType Directory -Force $build | Out-Null
-Remove-Item (Join-Path $build "Lanternfall.exe"), (Join-Path $build "Lanternfall.apk") -ErrorAction SilentlyContinue
+$exes = "Lanternfall.exe", "Lanternfall-3D.exe" | ForEach-Object { Join-Path $build $_ }
+$apks = "Lanternfall.apk", "Lanternfall-3D.apk" | ForEach-Object { Join-Path $build $_ }
+Remove-Item ($exes + $apks) -ErrorAction SilentlyContinue
 
 Invoke-Godot @("--import") "Import the project"
 Invoke-Godot @("--quit-after", "120") "Start the game and run it for 120 frames"
+# Plays a little of depth 1 in each view and checks that parries, struck-back
+# hexes and the lamp's oil do what they should; exits non-zero if not.
+Invoke-Godot @("--", "--autotest", "--mechanics", "--2d") "Check the mechanics in the flat view"
+Invoke-Godot @("--", "--autotest", "--mechanics", "--3d") "Check the mechanics in the 3D view"
 Invoke-Godot @("--export-release", "Windows Desktop", "build/Lanternfall.exe") "Export the Windows build"
 Invoke-Godot @("--export-release", "Android", "build/Lanternfall.apk") "Export the Android build"
+Invoke-Godot @("--export-release", "Windows Desktop 3D", "build/Lanternfall-3D.exe") "Export the Windows 3D build"
+Invoke-Godot @("--export-release", "Android 3D", "build/Lanternfall-3D.apk") "Export the Android 3D build"
 
 # Godot can report success without writing a usable file, so look at the results.
-$exe = Join-Path $build "Lanternfall.exe"
-$apk = Join-Path $build "Lanternfall.apk"
-foreach ($f in $exe, $apk) {
+foreach ($f in $exes + $apks) {
 	if (-not (Test-Path $f) -or (Get-Item $f).Length -lt 20MB) { throw "$f is missing or too small" }
 }
-& $apksigner verify $apk
-if ($LASTEXITCODE -ne 0) { throw "The APK signature does not verify" }
+foreach ($apk in $apks) {
+	& $apksigner verify $apk
+	if ($LASTEXITCODE -ne 0) { throw "The signature of $apk does not verify" }
+}
 Remove-Item (Join-Path $build "*.idsig"), $releaseKey -ErrorAction SilentlyContinue
 
-Get-Item $exe, $apk | ForEach-Object { "{0,8:N1} MB  {1}" -f ($_.Length / 1MB), $_.Name }
+Get-Item ($exes + $apks) | ForEach-Object { "{0,8:N1} MB  {1}" -f ($_.Length / 1MB), $_.Name }
 
 # What the finished files say about themselves.
 $aapt = Join-Path (Split-Path $apksigner) "aapt2.exe"
-(& $aapt dump badging $apk | Select-String "^package:").Line -replace " platformBuild.*", ""
-"exe: version " + (Get-Item $exe).VersionInfo.FileVersion
-# The fingerprint of the key the APK was signed with (public, safe to show).
-(& $apksigner verify --print-certs $apk | Select-String "SHA-256 digest").Line
+foreach ($apk in $apks) {
+	(& $aapt dump badging $apk | Select-String "^package:").Line -replace " platformBuild.*", ""
+}
+foreach ($exe in $exes) {
+	"{0}: version {1}" -f (Split-Path $exe -Leaf), (Get-Item $exe).VersionInfo.FileVersion
+}
+# The fingerprint of the key the APKs were signed with (public, safe to show).
+(& $apksigner verify --print-certs $apks[0] | Select-String "SHA-256 digest").Line

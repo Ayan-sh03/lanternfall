@@ -1,5 +1,7 @@
 # Builds the Windows .exe and the Android .apk on every push to main, on pull
-# requests, and on demand.
+# requests, and on demand, each twice: the classic game, which starts in the
+# flat view, and Lanternfall-3D, which starts in the 3D view. (Either switches
+# with F3.) The 3D APK installs alongside the classic one.
 #
 # Every build of main is published as a release named v1.0.<run number>, with
 # the .exe and the .apk attached for direct download. Pushing your own tag
@@ -29,7 +31,7 @@ concurrency:
 
 jobs:
   build:
-    name: Windows .exe and Android .apk
+    name: Windows .exe and Android .apk (classic and 3D)
     runs-on: windows-latest
     timeout-minutes: 30
     permissions:
@@ -86,6 +88,8 @@ jobs:
           path: |
             build/Lanternfall.exe
             build/Lanternfall.apk
+            build/Lanternfall-3D.exe
+            build/Lanternfall-3D.apk
           if-no-files-found: error
 
       - name: Publish the release
@@ -98,7 +102,10 @@ jobs:
           body: |
             - **Windows:** download `Lanternfall.exe` and run it.
             - **Android:** download `Lanternfall.apk` on the phone and open it (allow installs from your browser or file manager when asked).
+            - **3D:** `Lanternfall-3D.exe` and `Lanternfall-3D.apk` are the same game drawn in 3D. Press F3 in either version to switch views. The 3D APK installs alongside the classic one.
           generate_release_notes: true
           files: |
             build/Lanternfall.exe
             build/Lanternfall.apk
+            build/Lanternfall-3D.exe
+            build/Lanternfall-3D.apk

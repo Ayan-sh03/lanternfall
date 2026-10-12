@@ -51,7 +51,7 @@ Everything is loaded at run time, so there is no import step. All game code is i
 
 ## 3D view (prototype)
 
-The game is drawn in 3D by default: the same dungeon, monsters and combat, seen from a tilted camera with real walls, lights and shadows. Press `F3` at any time to switch between the 3D and the original flat view, or start with `godot --path . -- --2d` to begin in 2D.
+The game can be drawn in 3D: the same dungeon, monsters and combat, seen from a tilted camera with real walls, lights and shadows. Each release has a 3D build beside the classic one (`Lanternfall-3D.exe`, `Lanternfall-3D.apk`) that starts in 3D; the classic builds start flat. Press `F3` at any time in either to switch views. From source, `godot --path . -- --3d` starts in 3D.
 
 The game rules themselves are untouched and still run on the 2D tile grid. `scripts/view3d.gd` watches that state each frame and draws it again in 3D: tiles become floor slabs and brick walls, sprites stand up in the world as cut-outs, 2D lights become point lights, and effects such as sweeps and warning rings become geometry. Walls between the camera and Wren dissolve so she is never hidden.
 
