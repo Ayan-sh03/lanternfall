@@ -977,6 +977,11 @@ func run() -> void:
 		add_child(wt)
 		wt.run()
 		return
+	if OS.get_cmdline_user_args().has("--wildreel"):
+		var wr = load("res://scripts/wildreel.gd").new()
+		wr.main = main
+		add_child(wr)
+		return
 	if OS.get_cmdline_user_args().has("--showreel"):
 		var reel = load("res://scripts/showreel.gd").new()
 		reel.main = main
