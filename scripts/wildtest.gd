@@ -273,9 +273,10 @@ func run() -> void:
 		var mhp: int = g.moth.hp
 		# Held still over open floor for the shot: it never stops circling otherwise.
 		g.moth.set_process(false)
-		g.moth.position = g.ppos + Vector2(0, 6)
+		# Its body exactly over the tile Wren stands on, which is open floor.
+		g.moth.position = g.ppos + Vector2(0, 12)
 		g.moth.body.position = Vector2(0, -12)
-		g.add_shot(g.moth.position + g.moth.body.position + Vector2(-6, 0), Vector2(60, 0), false, 1, Color(1.0, 0.3, 0.75))
+		g.add_shot(g.moth.position + g.moth.body.position, Vector2(20, 0), false, 1, Color(1.0, 0.3, 0.75))
 		await w(0.4)
 		check(g.moth == null or g.moth.hp < mhp, "a hex can hit it")
 		if g.moth != null:
