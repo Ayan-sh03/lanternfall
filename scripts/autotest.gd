@@ -979,6 +979,13 @@ func run() -> void:
 		add_child(wt)
 		wt.run()
 		return
+	if OS.get_cmdline_user_args().has("--models"):
+		var mt = load("res://scripts/modeltest.gd").new()
+		mt.main = main
+		mt.at = self
+		add_child(mt)
+		mt.run()
+		return
 	if OS.get_cmdline_user_args().has("--wildreel"):
 		var wr = load("res://scripts/wildreel.gd").new()
 		wr.main = main

@@ -117,6 +117,9 @@ Invoke-Godot @("--", "--autotest", "--progress", "--3d") "Check deaths, embers, 
 # Oil and fire, the snuffed lamp, Wren's echo and the nemesis.
 Invoke-Godot @("--", "--autotest", "--wild", "--2d") "Check oil, fire, the snuffed lamp, the echo and the nemesis (flat view)"
 Invoke-Godot @("--", "--autotest", "--wild", "--3d") "Check oil, fire, the snuffed lamp, the echo and the nemesis (3D view)"
+# The rigged 3D figures load, animate with what they are doing, and the
+# camera turns and zooms with aim and movement still true to the screen.
+Invoke-Godot @("--", "--autotest", "--models", "--3d") "Check the 3D figures and the turning camera"
 Invoke-Godot @("--export-release", "Windows Desktop", "build/Lanternfall.exe") "Export the Windows build"
 Invoke-Godot @("--export-release", "Android", "build/Lanternfall.apk") "Export the Android build"
 Invoke-Godot @("--export-release", "Windows Desktop 3D", "build/Lanternfall-3D.exe") "Export the Windows 3D build"

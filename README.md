@@ -45,6 +45,7 @@ Get the latest build from the [Releases page](https://github.com/Ayan-sh03/lante
 | Ember bolt | Right click | Hold BOLT |
 | Dash (and leave an echo) | `Space` | DASH |
 | Throw oil | `X` or middle click | Flask stone |
+| Turn the 3D camera | Middle-drag, or hold `[` `]`; wheel zooms, `Home` resets | |
 | Snuff or relight the lamp | `C` | Hooded lamp stone |
 | Relic powers | `Q` `R` `F` | Their stones, once found |
 | Interact | `E` | The stone that appears beside a chest, lamp or stair |
@@ -64,13 +65,13 @@ Everything is loaded at run time, so there is no import step. All game code is i
 
 ## 3D view (prototype)
 
-The game can be drawn in 3D: the same dungeon, monsters and combat, seen from a tilted camera with real walls, lights and shadows. Each release has a 3D build beside the classic one (`Lanternfall-3D.exe`, `Lanternfall-3D.apk`) that starts in 3D; the classic builds start flat. Press `F3` at any time in either to switch views. From source, `godot --path . -- --3d` starts in 3D.
+The game can be drawn in 3D: the same dungeon, monsters and combat, seen from a tilted camera with real walls, lights and shadows, and real rigged, animated figures for Wren, the skeletal keepers, cantors and Bellringers, and Maren (low-poly models by Kay Lousberg, CC0). Bats, ink and cinder skulls are still drawn as standing sprites. The camera turns around Wren (drag with the middle mouse button, or hold `[` and `]`) and zooms with the wheel; `Home` puts it back. Movement keys always mean "up the screen", however the camera is turned. `--billboards` brings back the flat cut-outs for every figure. Each release has a 3D build beside the classic one (`Lanternfall-3D.exe`, `Lanternfall-3D.apk`) that starts in 3D; the classic builds start flat. Press `F3` at any time in either to switch views. From source, `godot --path . -- --3d` starts in 3D.
 
 The game rules themselves are untouched and still run on the 2D tile grid. `scripts/view3d.gd` watches that state each frame and draws it again in 3D: tiles become floor slabs and brick walls, sprites stand up in the world as cut-outs, 2D lights become point lights, and effects such as sweeps and warning rings become geometry. Walls between the camera and Wren dissolve so she is never hidden.
 
 On top of that the 3D view adds bloom (bright embers, eyes and flames spill light), shadows thrown by every monster and prop away from Wren's lantern, and normal maps worked out from each sprite's outline so cloaks, bricks and slabs catch light from the side it comes from. Phones and the "fast" picture setting go without bloom and shadows; `--nobloom` turns bloom off on slow test machines.
 
-`godot --path . -- --autotest --view3d --shotdir=<dir>` checks the 3D view: that the mouse aims exactly where it points, that switching views works, and saves screenshots.
+`godot --path . -- --autotest --models --shotdir=<dir>` checks the 3D figures and the turning camera. `godot --path . -- --autotest --view3d --shotdir=<dir>` checks the 3D view: that the mouse aims exactly where it points, that switching views works, and saves screenshots.
 
 ## Building
 

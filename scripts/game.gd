@@ -203,6 +203,15 @@ var echo_clock := 0.0
 var echo_track: Array = []
 var echo_blows: Array = []
 var echo_cd := 0.0
+## Counts of each swing, cast, throw and blow taken, so the 3D figures can
+## start an animation for every new one.
+var swing_n := 0
+var cast_n := 0
+var throw_n := 0
+var hurt_n := 0
+## The middle button rotates the 3D camera when dragged and throws when clicked.
+var mid_down := false
+var mid_dragged := false
 ## Whether the last blow Wren took came from her nemesis.
 var last_by_nem := false
 ## Flit, the lamp moth, once befriended (moth.gd); null otherwise.
@@ -965,7 +974,15 @@ func _unhandled_input(ev: InputEvent) -> void:
 		elif ev.button_index == MOUSE_BUTTON_RIGHT:
 			bolt_buf = 0.22
 		elif ev.button_index == MOUSE_BUTTON_MIDDLE:
+			if view_yaw_live():
+				mid_down = true
+				mid_dragged = false
+			else:
+				throw_flask()
+	if pad == null and ev is InputEventMouseButton and not ev.pressed and ev.button_index == MOUSE_BUTTON_MIDDLE:
+		if mid_down and not mid_dragged:
 			throw_flask()
+		mid_down = false
 	if ev is InputEventKey and ev.pressed and not ev.echo:
 		match ev.physical_keycode:
 			KEY_SPACE, KEY_SHIFT:
@@ -1049,6 +1066,9 @@ func _update_player(dt: float) -> void:
 		if dash_buf > 0.0 and dash_stock > 0 and dash_t <= 0.0:
 			try_dash()
 	mv = mv.limit_length(1.0)
+	# With the 3D camera turned, "up" on the keys is still away from the camera.
+	if not bot and view_yaw_live():
+		mv = mv.rotated(-view3d.yaw)
 	last_mv = mv
 
 	if dash_t > 0.0:
@@ -1180,6 +1200,11 @@ func _bot_think() -> void:
 
 # --- The lamp snuffed, the flask thrown, the echo -----------------------------------
 
+## True while the 3D view is on (its camera can be turned).
+func view_yaw_live() -> bool:
+	return view3d != null and view3d.active
+
+
 func toggle_snuff() -> void:
 	if dead:
 		return
@@ -1284,6 +1309,7 @@ func throw_flask() -> void:
 	pose_t = 0.2
 	Sfx.play("dash", -10.0, 0.2)
 	surf.throw_flask(o, to + Vector2(0, 7))
+	throw_n += 1
 	_say_once("flask", "Oil burns. Mind where it pools.")
 
 
@@ -1631,6 +1657,7 @@ func do_slash() -> void:
 	riposte_t = 0.0
 	squash(0.16 if heavy else 0.09)
 	echo_blows.append({"t": echo_clock, "k": "slash", "a": aim, "heavy": heavy})
+	swing_n += 1
 	for e in enemies:
 		if e.dead:
 			continue
@@ -1701,6 +1728,7 @@ func do_bolt() -> void:
 	if snuffed:
 		relight()
 	echo_blows.append({"t": echo_clock, "k": "bolt", "a": aim, "heavy": false})
+	cast_n += 1
 	oil -= bolt_cost()
 	bolt_cd = 0.38
 	bolt_buf = 0.0
@@ -1758,6 +1786,7 @@ func hurt_player(amount: int, from: Vector2, kb: float = 170.0, src = null) -> b
 	if spared:
 		hp = 1
 	invuln = 0.9
+	hurt_n += 1
 	if hp > 0 and hp <= 2:
 		# The last heart: a longer breath before the next blow can land.
 		invuln = 1.6
@@ -1940,6 +1969,8 @@ func _disintegrate(e) -> void:
 	ghost.flip_h = spr.flip_h
 	ghost.position = e.position
 	ghost.scale = spr.scale
+	# A modelled foe falls in 3D instead; the 3D view leaves this one out.
+	ghost.set_meta("ghost", e.kind)
 	var gm := ShaderMaterial.new()
 	gm.shader = Art.flash_shader
 	gm.set_shader_parameter("flash", 1.0)
@@ -2552,6 +2583,8 @@ func _update_camera(dt: float) -> void:
 	var look := Vector2.ZERO
 	if pad == null and not bot and not dead and not hud.blocking():
 		look = (vp.get_mouse_position() - vp.get_visible_rect().size * 0.5) / cam.zoom.x * 0.18
+		if view_yaw_live():
+			look = look.rotated(-view3d.yaw)
 	var target := ppos + Vector2(0, -6) + look
 	if not hud.blocking():
 		target += pvel * 0.16

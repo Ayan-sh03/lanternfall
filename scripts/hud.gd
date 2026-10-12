@@ -163,8 +163,8 @@ func _ready() -> void:
 	_place(depth_lbl, 0.5, 0.0, Vector2(0, 14), Vector2(600, 26))
 	hud_group.add_child(depth_lbl)
 
-	hint_lbl = _lbl("WASD  move        Mouse  aim\nLeft click  strike  (third strike is heavy)\nRight click  ember bolt        X / middle click  throw oil\nSpace  dash  (your last blows echo)        C  snuff the lamp\nE  interact        Esc  pause        Q / R / F  relic powers", 20, C_PARCH, font, 5)
-	_place(hint_lbl, 0.0, 1.0, Vector2(24, -18), Vector2(520, 156))
+	hint_lbl = _lbl("WASD  move        Mouse  aim\nLeft click  strike  (third strike is heavy)\nRight click  ember bolt        X / middle click  throw oil\nSpace  dash  (your last blows echo)        C  snuff the lamp\nE  interact        Esc  pause        Q / R / F  relic powers\nIn 3D: middle-drag or [ ] turns the camera, wheel zooms", 20, C_PARCH, font, 5)
+	_place(hint_lbl, 0.0, 1.0, Vector2(24, -18), Vector2(560, 182))
 	hint_lbl.vertical_alignment = VERTICAL_ALIGNMENT_BOTTOM
 	if touch:
 		hint_lbl.text = "Left thumb  move\nHold STRIKE  fight  (third strike is heavy)\nHold BOLT  ember bolt  (uses oil)\nDrag off either stone to aim by hand\nFlask throws oil; the hooded lamp snuffs yours"

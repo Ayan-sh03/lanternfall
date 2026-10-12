@@ -10,6 +10,21 @@ All pixel art (characters, monsters, tiles, props) is drawn in code by the game
 itself (scripts/art.gd) and is original to this project.
 
 
+3D CHARACTERS  (CC0, by Kay Lousberg, www.kaylousberg.com)       models/
+------------------------------------------------------------------------
+The rigged, animated figures used by the 3D view. Each file is the pack's .glb
+with only the animations the game uses kept, renamed .glbx so it ships as a
+plain file and is read at run time.
+wren.glbx              Rogue_Hooded      KayKit Character Pack: Adventurers 1.0
+maren.glbx             Mage              (also lends Wren its staff)
+skeleton_minion.glbx   Skeleton_Minion   KayKit Character Pack: Skeletons 1.0
+skeleton_mage.glbx     Skeleton_Mage
+skeleton_warrior.glbx  Skeleton_Warrior
+skeleton_rogue.glbx    Skeleton_Rogue
+  Source: https://github.com/KayKit-Game-Assets/KayKit-Character-Pack-Adventures-1.0
+          https://github.com/KayKit-Game-Assets/KayKit-Character-Pack-Skeletons-1.0
+
+
 FONTS  (SIL Open Font License 1.1)
 ----------------------------------
 New Rocker   Pablo Impallari, Brenda Gallo    fonts/NewRocker-Regular.ttf   titles and headings

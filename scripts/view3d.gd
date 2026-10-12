@@ -11,6 +11,7 @@ extends Node3D
 
 const Art = preload("res://scripts/art.gd")
 const Story = preload("res://scripts/story.gd")
+const ActorsS = preload("res://scripts/actors3d.gd")
 
 const TS := 16.0
 ## How steeply the camera looks down.
@@ -39,6 +40,7 @@ const GLOBALS := "
 global uniform sampler2D lf_fog : filter_linear;
 global uniform vec2 lf_size;
 global uniform vec3 lf_player;
+global uniform vec2 lf_camdir;
 "
 
 ## The walls and floor. Walls between the camera and Wren dissolve so she is
@@ -59,8 +61,11 @@ void fragment() {
 	float f = texture(lf_fog, (wpos.xz - wnrm.xz * 0.3) / lf_size).a;
 	// Only the faces and tops that can actually hide her: just south of her,
 	// not the side walls of the corridor she walks down.
-	if (wpos.y > 0.05 && abs(wnrm.x) < 0.5) {
-		vec2 d = wpos.xz - lf_player.xz;
+	// Measured along the camera's heading, so this holds however it is turned.
+	vec2 side_dir = vec2(lf_camdir.y, -lf_camdir.x);
+	if (wpos.y > 0.05 && abs(dot(wnrm.xz, side_dir)) < 0.75) {
+		vec2 dd = wpos.xz - lf_player.xz;
+		vec2 d = vec2(dot(dd, side_dir), dot(dd, lf_camdir));
 		float k = (1.0 - smoothstep(1.1, 2.2, abs(d.x))) * smoothstep(0.1, 0.6, d.y) * (1.0 - smoothstep(2.0, 3.0, d.y));
 		if (bayer4(FRAGCOORD.xy) < k * 0.92) discard;
 	}
@@ -236,6 +241,15 @@ var order := 0
 var shadow_on := false
 var bloom: CanvasLayer
 var shadow_light: OmniLight3D = null
+## Rigged figures for Wren and the foes that have models (actors3d.gd); off
+## with --billboards, which brings back the standing cut-outs.
+var actors
+var models_on := false
+## The camera can be turned around Wren and drawn in or out.
+var yaw := 0.0
+var yaw_to := 0.0
+var zoom_k := 1.0
+var zoom_to := 1.0
 
 
 static func _shader(id: String, code: String) -> Shader:
@@ -255,6 +269,7 @@ static func _globals() -> void:
 	RenderingServer.global_shader_parameter_add("lf_fog", RenderingServer.GLOBAL_VAR_TYPE_SAMPLER2D, Art.tex["px"])
 	RenderingServer.global_shader_parameter_add("lf_size", RenderingServer.GLOBAL_VAR_TYPE_VEC2, Vector2.ONE)
 	RenderingServer.global_shader_parameter_add("lf_player", RenderingServer.GLOBAL_VAR_TYPE_VEC3, Vector3.ZERO)
+	RenderingServer.global_shader_parameter_add("lf_camdir", RenderingServer.GLOBAL_VAR_TYPE_VEC2, Vector2(0, 1))
 
 
 func _ready() -> void:
@@ -308,6 +323,11 @@ func _ready() -> void:
 	rect.material = bm
 	bloom.add_child(rect)
 	add_child(bloom)
+	actors = ActorsS.new()
+	actors.view = self
+	actors.game = game
+	add_child(actors)
+	models_on = not OS.get_cmdline_user_args().has("--billboards") and ActorsS.available()
 	set_active(active)
 
 
@@ -328,6 +348,8 @@ func bloom_ok() -> bool:
 func set_active(on: bool) -> void:
 	active = on
 	visible = on
+	if game != null:
+		game.mid_down = false
 	if cam != null:
 		cam.current = on
 	if bloom != null:
@@ -364,9 +386,10 @@ func mouse_world() -> Vector2:
 
 # --- Per frame -----------------------------------------------------------------------
 
-func _process(_dt: float) -> void:
+func _process(dt: float) -> void:
 	if not active or game == null or game.W == 0:
 		return
+	_turn(dt)
 	if game.floor_seed != built_seed or game.depth != built_depth or game.map_rev != built_rev:
 		_build_map()
 	RenderingServer.global_shader_parameter_set("lf_player", to3(game.ppos))
@@ -381,9 +404,13 @@ func _process(_dt: float) -> void:
 		roots.append([c, false, 0.0])
 	for c in game.over.get_children():
 		roots.append([c, false, LIFT])
+	if models_on:
+		actors.sync(dt)
 	for r in roots:
 		var node: Node2D = r[0]
 		if node.is_queued_for_deletion() or not node.visible:
+			continue
+		if models_on and node.has_meta("ghost") and ActorsS.MODELS.has(node.get_meta("ghost")):
 			continue
 		var ground: Vector2 = node.global_position + Vector2(0, r[2])
 		_walk(node, ground, r[1], Color.WHITE, 0)
@@ -405,6 +432,8 @@ func _sweep(pool: Dictionary) -> void:
 
 
 func _walk(n: Node, ground: Vector2, flat: bool, tint: Color, depth: int) -> void:
+	if models_on and actors.skip.has(n.get_instance_id()):
+		return
 	if n is CanvasItem:
 		tint = tint * n.modulate * n.self_modulate
 	if n is Sprite2D:
@@ -490,11 +519,17 @@ func _mirror_sprite(s: Sprite2D, ground: Vector2, flat: bool, tint: Color) -> vo
 		xf.basis.x = Vector3(cos(r), -sin(r) * K, 0.0) * w
 		xf.basis.y = Vector3(sin(r), cos(r) * K, 0.0) * h
 		xf.basis.z = Vector3.BACK
+		if yaw != 0.0:
+			# Still square to the camera, however it has been turned.
+			xf.basis = Basis(Vector3.UP, yaw) * xf.basis
 		# Later children are drawn over earlier ones in 2D; nudge them toward
 		# the camera so they still win.
 		# In 2D the feet hang a few pixels below the anchor; here that would
 		# put them under the floor.
-		xf.origin = Vector3(c.x / TS, (ground.y - c.y + FOOT) * K / TS, ground.y / TS + order * 0.002)
+		var side_off := Vector3((c.x - ground.x) / TS, 0.0, order * 0.002)
+		if yaw != 0.0:
+			side_off = Basis(Vector3.UP, yaw) * side_off
+		xf.origin = Vector3(ground.x / TS, (ground.y - c.y + FOOT) * K / TS, ground.y / TS) + side_off
 	mi.transform = xf
 	if mi.has_meta("shadow"):
 		var sh: MeshInstance3D = mi.get_meta("shadow")
@@ -546,9 +581,39 @@ func _update_camera() -> void:
 	var z: float = game.cam.zoom.x
 	var target := Vector3(c2.x / TS, 0.4, (c2.y + 6.0) / TS)
 	var vis_h: float = get_viewport().get_visible_rect().size.y / (z * TS)
-	var dist := vis_h * 0.5 / tan(deg_to_rad(FOV) * 0.5) * 0.9
-	cam.position = target + Vector3(0.0, sin(PITCH), cos(PITCH)) * dist
+	var dist := vis_h * 0.5 / tan(deg_to_rad(FOV) * 0.5) * 0.9 * zoom_k
+	var back := Vector3(sin(yaw) * cos(PITCH), sin(PITCH), cos(yaw) * cos(PITCH))
+	cam.position = target + back * dist
 	cam.look_at(target, Vector3.UP)
+	RenderingServer.global_shader_parameter_set("lf_camdir", Vector2(sin(yaw), cos(yaw)))
+
+
+## Turning and zooming: drag with the middle button, or hold [ and ] to turn;
+## the wheel zooms. Home puts the camera back.
+func _turn(dt: float) -> void:
+	if not game.hud.blocking() and not game.bot:
+		var k := float(Input.is_physical_key_pressed(KEY_BRACKETRIGHT)) - float(Input.is_physical_key_pressed(KEY_BRACKETLEFT))
+		yaw_to += k * dt * 2.0
+		if Input.is_physical_key_pressed(KEY_HOME):
+			yaw_to = 0.0
+			zoom_to = 1.0
+	yaw = lerp_angle(yaw, yaw_to, 1.0 - exp(-dt * 12.0))
+	zoom_k = lerpf(zoom_k, zoom_to, 1.0 - exp(-dt * 10.0))
+
+
+func _unhandled_input(ev: InputEvent) -> void:
+	if not active or game == null or game.hud.blocking():
+		return
+	if ev is InputEventMouseButton and ev.pressed:
+		if ev.button_index == MOUSE_BUTTON_WHEEL_UP:
+			zoom_to = maxf(0.55, zoom_to * 0.9)
+		elif ev.button_index == MOUSE_BUTTON_WHEEL_DOWN:
+			zoom_to = minf(1.6, zoom_to / 0.9)
+	elif ev is InputEventMouseMotion and game.mid_down:
+		if absf(ev.relative.x) > 0.0:
+			yaw_to -= ev.relative.x * 0.008
+			if absf(ev.relative.x) > 2.0:
+				game.mid_dragged = true
 
 
 # --- The dungeon ----------------------------------------------------------------------
