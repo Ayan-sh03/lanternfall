@@ -4,6 +4,7 @@ extends CanvasLayer
 const Art = preload("res://scripts/art.gd")
 const Story = preload("res://scripts/story.gd")
 const TouchS = preload("res://scripts/touch.gd")
+const NemesisS = preload("res://scripts/nemesis.gd")
 
 const C_PARCH := Color(0.93, 0.87, 0.72)
 const C_EMBER := Color(1.0, 0.72, 0.35)
@@ -565,7 +566,14 @@ func show_title() -> void:
 	var s := _lbl("A  DESCENT  IN  SEVEN  DEPTHS", 30, C_DIM, font_i)
 	s.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	vb.add_child(s)
-	vb.add_child(_spacer(150))
+	# The grudge, before the run starts: who is waiting below.
+	var nm: Dictionary = main.profile.get("nemesis", {})
+	if not nm.is_empty():
+		var n := _lbl("Below waits %s" % NemesisS.full_name(nm, true), 24, Color(1.0, 0.42, 0.34), font_i, 6)
+		n.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		n.add_theme_color_override("font_outline_color", Color(0.15, 0.0, 0.0, 0.9))
+		vb.add_child(n)
+	vb.add_child(_spacer(122 if not nm.is_empty() else 150))
 	var has_save: bool = main.latest_slot() >= 0
 	var items: Array = []
 	if has_save:

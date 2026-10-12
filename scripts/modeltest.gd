@@ -85,6 +85,11 @@ func run() -> void:
 		check(main.title3d != null or DisplayServer.get_name() == "headless", "the title stands in a 3D hall")
 		if main.title3d != null:
 			check(main.title3d.nem != null, "the nemesis waits in the archway")
+		var named := false
+		for l in main.hud.find_children("*", "Label", true, false):
+			if l.text.begins_with("Below waits Vorulch"):
+				named = true
+		check(named, "and the title names it")
 		main.profile["nemesis"] = keep_nem
 		await at.shot("title3d")
 		main.new_game(1)
