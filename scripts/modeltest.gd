@@ -76,9 +76,16 @@ func run() -> void:
 		return
 	if OS.get_cmdline_user_args().has("--title"):
 		main.use_3d = true
+		var keep_nem: Dictionary = main.profile["nemesis"]
+		main.profile["nemesis"] = {"kind": "brute", "name": "Vorulch", "rank": 2, "wins": 2}
+		main.title_scene(false)
+		await get_tree().process_frame
 		main.hud.show_title()
 		await w(4.0)
 		check(main.title3d != null or DisplayServer.get_name() == "headless", "the title stands in a 3D hall")
+		if main.title3d != null:
+			check(main.title3d.nem != null, "the nemesis waits in the archway")
+		main.profile["nemesis"] = keep_nem
 		await at.shot("title3d")
 		main.new_game(1)
 		await w(1.0)

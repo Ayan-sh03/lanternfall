@@ -21,7 +21,7 @@ godot --path . -- --2d                                     # classic flat view
 ```
 
 - `F3` switches between 3D and flat at any time.
-- In 3D: middle-drag or `[` `]` turns the camera, the wheel zooms, `Home` resets.
+- In 3D: middle-drag or `[` `]` turns the camera (on touch, drag the open right side), the wheel zooms, `Home` resets.
 - Debug flags:
 
 | Flag | Effect |
@@ -93,6 +93,6 @@ The game rules still run entirely in 2D (`game.gd`, `enemy.gd`, 16 px tiles). Th
    - The dark eating the HUD.
    - A restyled HUD.
    - A 3D look for the town screen.
-   - Nemesis and Flit visible on the title.
-   - Touch camera rotation.
+   - Flit visible on the title (the nemesis now waits there, in `title3d._nemesis()`).
+   - Touch pinch to zoom (a drag on the open right side already turns the camera, `touch.gd` `cam_id`).
 5. **Balance:** first guesses for flask cost (20), flare cooldown (5 s), echo damage (50%), gloams while snuffed, nemesis HP and payout, and Flit's bite.

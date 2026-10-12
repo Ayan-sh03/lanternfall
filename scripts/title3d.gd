@@ -7,6 +7,7 @@ extends Node3D
 const ActorsS = preload("res://scripts/actors3d.gd")
 const DungeonS = preload("res://scripts/dungeon3d.gd")
 const View3DS = preload("res://scripts/view3d.gd")
+const CreaturesS = preload("res://scripts/creatures3d.gd")
 
 var main
 var cam: Camera3D
@@ -17,6 +18,10 @@ var actors
 var torches: Array = []
 var lamp: OmniLight3D
 var lantern: Node3D
+var nem: Node3D
+var nem_y := 0.0
+var nem_light: OmniLight3D
+var bat_wings: Array = []
 
 
 func _ready() -> void:
@@ -85,6 +90,7 @@ func _ready() -> void:
 		k["model"].rotation.y = 0.5 - i * 1.0
 		if k["ap"] != null:
 			k["ap"].play("Skeleton_Inactive_Standing_Pose")
+	_nemesis()
 	# Figure light: a rim from behind so Wren stands out against the hall.
 	var rim := DirectionalLight3D.new()
 	rim.light_cull_mask = 2
@@ -114,6 +120,45 @@ func _ready() -> void:
 	dust.gravity = Vector3(0, -0.01, 0)
 	dust.initial_velocity_max = 0.06
 	add_child(dust)
+
+
+## The foe that last put Wren out (main.profile["nemesis"]) waits awake in
+## the archway behind her, lit red from below.
+func _nemesis() -> void:
+	var nm: Dictionary = main.profile.get("nemesis", {}) if main != null else {}
+	if nm.is_empty():
+		return
+	var kind := str(nm.get("kind", ""))
+	var root: Node3D = null
+	match kind:
+		"husk", "cantor", "brute":
+			var a: Dictionary = actors._make(kind)
+			if a.is_empty():
+				return
+			root = a["root"]
+			if a["ap"] != null:
+				a["ap"].play("Idle_Combat")
+		"slime", "slimelet":
+			root = CreaturesS.slime(kind == "slimelet")["root"]
+			add_child(root)
+		"moth":
+			var b: Dictionary = CreaturesS.bat()
+			root = b["root"]
+			bat_wings = b["wings"]
+			root.scale = Vector3.ONE * 1.6
+			add_child(root)
+		_:
+			return
+	nem = root
+	nem_y = 1.1 if kind == "moth" else 0.0
+	root.position = Vector3(0.8, nem_y, -1.95)
+	var l := OmniLight3D.new()
+	l.light_color = Color(1.0, 0.18, 0.12)
+	l.light_energy = 2.2 if aaa else 1.4
+	l.omni_range = 2.6
+	l.position = Vector3(0.8, 0.25, -1.5)
+	add_child(l)
+	nem_light = l
 
 
 ## The hall: a stone floor, a back wall with an archway between two torches,
@@ -184,5 +229,13 @@ func _process(dt: float) -> void:
 	# Wren's light burns in the lantern on her staff, not at her face.
 	if lamp != null and lantern != null:
 		lamp.position = lantern.global_position + Vector3(0.05, 0.05, 0.12)
+	if nem != null:
+		# It watches Wren, and the red light under it breathes.
+		nem.rotation.y = -0.35 + 0.15 * sin(t * 0.4)
+		if not bat_wings.is_empty():
+			nem.position.y = nem_y + 0.08 * sin(t * 3.0)
+			for wg in bat_wings:
+				wg[0].rotation.z = wg[1] * 0.7 * sin(t * 14.0)
+		nem_light.light_energy = (2.2 if aaa else 1.4) * (0.75 + 0.25 * sin(t * 1.7))
 	for i in torches.size():
 		torches[i].light_energy = (2.8 if aaa else 1.5) + 0.25 * sin(t * 9.0 + i * 2.0) + 0.12 * sin(t * 23.0 + i)
