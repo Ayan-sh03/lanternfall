@@ -1,5 +1,5 @@
 extends Node
-## Sound and music. Recorded effects and music tracks (all CC0, see CREDITS.txt)
+## Sound and music. Recorded effects and music tracks (CC0, three tracks CC-BY; see CREDITS.txt)
 ## are loaded from res://audio; anything without a file falls back to a sound
 ## synthesised here at startup.
 
@@ -28,7 +28,11 @@ const FILE_VOL := {"step": -15.0, "type": -12.0, "cinder": -10.0, "hit": -4.0, "
 	"slash": -6.0, "slash3": -3.0, "dash": -4.0, "bolt": -6.0, "shoot": -8.0, "pop": -8.0, "coins": -6.0,
 	"page": -4.0, "chest": -3.0, "urn": -6.0, "stairs": -3.0, "lock": -4.0, "ui": -10.0, "ui_ok": -8.0,
 	"boom": -1.0, "roar": -2.0, "bell": -5.0, "gong": -3.0, "thud": -3.0, "growl": -9.0, "slime": -10.0,
-	"thunder": -3.0, "fire": -5.0, "clank": -6.0, "relic": -3.0}
+	"thunder": -3.0, "fire": -5.0, "clank": -6.0, "relic": -3.0,
+	# The combat set (see CREDITS.txt), levelled against each other by build.
+	"hit_heavy": -4.0, "crit": -3.0, "hit_bolt": -5.0, "burn": -8.0, "ember_hit": -10.0, "ward_hit": -8.0,
+	"shatter": -5.0, "hurt_voice": -3.0, "death_voice": -2.0, "death": -2.0, "parry": -4.0, "deflect": -6.0,
+	"husk_lunge": -4.0, "moth_bite": -5.0, "brute_roar": -3.0, "chant": -6.0, "wisp_fuse": -5.0}
 ## Synthesised stand-ins used when a music file is missing.
 const MUSIC_FALLBACK := {"title": "vesper", "depth1": "vesper", "depth2": "vesper", "depth3": "deep",
 	"depth4": "deep", "depth5": "deep", "depth6": "deep", "forge": "deep", "boss": "warden", "keep": "vesper", "dawn": "dawn"}

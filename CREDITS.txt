@@ -1,10 +1,13 @@
 LANTERNFALL - third-party assets
 ================================
 
-Everything listed here is free to use. The audio is Creative Commons Zero
-(CC0, public domain dedication): no attribution is required, but the people who
-made it deserve the mention. The fonts are under the SIL Open Font License 1.1;
-their licence texts sit next to them in fonts/.
+Everything listed here is free to use and to redistribute with the game.
+Most of the audio is Creative Commons Zero (CC0, public domain dedication): no
+attribution is required, but the people who made it deserve the mention. Three
+music tracks are under licences that do require credit (CC-BY 3.0, CC-BY 4.0,
+OGA-BY 3.0); they are marked below and this file ships inside every build. The
+fonts are under the SIL Open Font License 1.1; their licence texts sit next to
+them in fonts/.
 
 All pixel art (characters, monsters, tiles, props) is drawn in code by the game
 itself (scripts/art.gd) and is original to this project.
@@ -18,29 +21,77 @@ Jersey 10    The Soft Type Project Authors    fonts/Jersey10-Regular.ttf    all 
   Source: https://github.com/google/fonts (ofl/newrocker, ofl/jersey10, ofl/jersey20)
 
 
-MUSIC  (CC0, from OpenGameArt.org)       audio/music/
+MUSIC  (from OpenGameArt.org)            audio/music/
 ---------------------------------------------------
-(Names in the third column are the OpenGameArt accounts that published each track.)
-title.ogg    "Dark Intro"                          nikke          opengameart.org/content/dark-intro
-depth1.ogg   "Cursed Tower Veranda"                bobjt          opengameart.org/content/cursed-tower-veranda
-depth2.ogg   "Dungeon Theme"                       katana         opengameart.org/content/dungeon-theme-0
-depth3.ogg   "Dark Cavern Ambient" (001)           Paul Wortmann  opengameart.org/content/dark-cavern-ambient
-depth4.ogg   "Dark Cavern Ambient" (002)           Paul Wortmann  opengameart.org/content/dark-cavern-ambient
-depth5.ogg   "Dark Shrine Loop"                    yd (published by qubodup)  opengameart.org/content/dark-shrine-loop
-depth6.ogg   "Heavy Dungeon"                       MintoDog       opengameart.org/content/heavy-dungeon
-forge.ogg    "Evil Temple Ambiance Loop"           Brandon Morris opengameart.org/content/evil-temple-ambiance-loop
-boss.ogg     "Epic Boss Battle [Seamlessly Looping]"  Juhani Junkala (SubspaceAudio)  opengameart.org/content/boss-battle-music
-keep.ogg     "I Want To Go Home"                   eldritch-grim  opengameart.org/content/i-want-to-go-home
-dawn.ogg     "Ending Scene"                        nene           opengameart.org/content/ending-scene
+title.ogg   "Tragic Ambient Main Menu"   brandon75689 (Brandon Morris), submitted by HaelDB
+            CC0 (also offered as OGA-BY 3.0)   opengameart.org/content/tragic-ambient-main-menu
+depth1.ogg  "Forgotten Tombs Ambience"   kindland        CC0
+            opengameart.org/content/forgoten-tomb-ambience
+depth2.ogg  "Searching"                  yd              CC0   opengameart.org/content/searching
+depth3.ogg  "Dread Castle", composed by Scott Elliott (Scrabbit)   CC-BY 4.0 (credit required)
+            opengameart.org/content/dread-castle   creativecommons.org/licenses/by/4.0/
+depth4.ogg  "When the Shadows Gather"    Tsorthan Grove  CC0
+            opengameart.org/content/when-the-shadows-gather
+depth5.ogg  "Post Apocalyptic Wastelands (Loop Ready)"   Juhani Junkala (SubspaceAudio)   CC0
+            opengameart.org/content/horror-atmosphere
+depth6.ogg  "A Darkness Opus"            Alexandr Zhelanov   OGA-BY 3.0 (credit required)
+            opengameart.org/content/a-darkness-opus   soundcloud.com/alexandr-zhelanov
+forge.ogg   "The 9th Circle"             Joth            CC0   opengameart.org/content/the-9th-circle
+boss.ogg    "Colossal Boss Battle Theme" (Blackmoor Colossus, loop)   Matthew Pablo
+            CC-BY 3.0 (credit required)   www.matthewpablo.com
+            opengameart.org/content/colossal-boss-battle-theme   creativecommons.org/licenses/by/3.0/
+keep.ogg    "Sinister Abode"             Zane Little Music   CC0   opengameart.org/content/sinister-abode
+dawn.ogg    "A Fallen Dawn"              Umplix          CC0   opengameart.org/content/a-fallen-dawn
+
+Tracks were converted to OGG and levelled to about -17 LUFS; nothing else was changed.
 
 
-SOUND EFFECTS  (CC0)                     audio/sfx/
+SOUND EFFECTS  (all CC0)                 audio/sfx/
 ---------------------------------------------------
+Combat, voices and foes (OpenGameArt.org unless noted; page = opengameart.org/content/<page>).
+Most cues are layers of two sources, trimmed and level-matched for the game.
+  slash        artisticdude, "Swishes Sound Pack" (swishes-sound-pack)
+  slash3       qubodup, "Wind, hit, time morph" (wind-hit-time-morph);
+               artisticdude, "Battle Sound Effects" (battle-sound-effects, CC0 option)
+  hit          AntumDeluge, "Thwack Sounds" (thwack-sounds) +
+               Zane Little Music, "Fleshy Bone Break/Snap SFX" (fleshy-bone-breaksnap-sfx)
+  hit_heavy, crit
+               Zane Little Music, "Deep Bone Crack/Break SFX" (deep-bone-crackbreak-sfx) +
+               the two above
+  hit_bolt, shatter, boom
+               EZduzziteh, "Explosions" (explosions-4); themightyglider, "Catching Fire"
+               (catching-fire); with the thwacks and wet breaks above
+  bolt         qubodup, "3 Dark Magic Spells" (3-dark-magic-spells);
+               Julien Matthey, "Fireball" (fireball-1, submitted by diligentcircle)
+  burn, ember_hit
+               AntumDeluge, "Fire Crackling" (fire-crackling); themightyglider, "Catching Fire"
+  ward_hit     Someoneman, "Cure Magic" (cure-magic)
+  kill         Independent.nu, "8 Wet Squish/Slurp Impacts" (8-wet-squish-slurp-impacts,
+               submitted by qubodup) + qubodup, "Fantasy Implosion"
+               (freesound.org/people/qubodup/sounds/814047/)
+  hurt_voice   cicifyre, "Female RPG Voice Starter Pack" (female-rpg-voice-starter-pack);
+               Nocturnal_Vanguard (AuraVoice), "Female Hurt Grunts & Groans"
+               (female-hurt-grunts-groans)
+  death_voice  Nocturnal_Vanguard, "Female Hurt Grunts & Groans"
+  death        psychhead_, "Horror Hit Soundpack 1" (horror-hit-soundpack-1)
+  parry        StarNinjas, "20 Sword Sound Effects (Attacks and Clashes)"
+               (20-sword-sound-effects-attacks-and-clashes)
+  deflect      BMacZero, "Metal Impact Sounds" (metal-impact-sounds)
+  husk_lunge   ArcadeParty, "Zombie, Skeleton, Monster Voice Effects"
+               (zombie-skeleton-monster-voice-effects)
+  moth_bite    qubodup, "Insect or Alien Scream" (insect-or-alien-scream);
+               Joao_Janz, "Screeching Creature" (freesound.org/people/Joao_Janz/sounds/482364/)
+  brute_roar   artisticdude, "RPG Sound Pack" (rpg-sound-pack)
+  growl        StarNinjas, "16 Monster Growls" (16-monster-growls)
+  chant        OwlishMedia, "Creepy Incoherent Chanting" (creepy-incoherent-chanting)
+  wisp_fuse    SnowFightStudios, "Humming Magical Orb"
+               (freesound.org/people/SnowFightStudios/sounds/670641/)
+Everything else:
 Kenney (kenney.nl): "RPG Audio", "Impact Sounds", "Interface Sounds"
-    slash, hit, punch, pop, page, step, clank, ui, ui_ok, type, some of coins / bell / thud
+    punch, pop, page, step, clank, ui, ui_ok, type, some of coins / bell / thud
 rubberduck (OpenGameArt.org): "80 CC0 RPG SFX", "100 CC0 SFX", "100 CC0 SFX #2"
-    slash3, kill, growl, roar, slime, shoot, bolt, fire, cinder, relic, lock, stairs,
-    chest, urn, boom, gong, dash, thunder, some of coins / bell / thud
+    roar, slime, shoot, fire, cinder, relic, lock, stairs, chest, urn, gong, dash,
+    thunder, some of coins / bell / thud
 
 The files were trimmed, converted to mono OGG and level-matched for the game.
 A handful of cues (level-up, heart, lamp chime, telegraph tones, and others) are

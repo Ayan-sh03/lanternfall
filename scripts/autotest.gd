@@ -1255,9 +1255,9 @@ func audio_test() -> void:
 	var fails := 0
 	var was_muted: bool = Sfx.muted
 	Sfx.muted = false
-	# 1. Every Sfx.play("...") in the scripts resolves to something, unless it is
-	#    a cue that is allowed to stay silent until it has a recording.
-	var silent_ok := ["chant", "hurt_voice"]
+	# 1. Every Sfx.play("...") in the scripts resolves to something. A cue may be
+	#    let off here while it waits for a recording; none is now.
+	var silent_ok: Array[String] = []
 	var re := RegEx.new()
 	re.compile("Sfx\\.play\\(\"([a-z0-9_]+)\"")
 	var ids := {}

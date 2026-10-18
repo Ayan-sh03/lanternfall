@@ -1813,8 +1813,10 @@ func hurt_player(amount: int, from: Vector2, kb: float = 170.0, src = null) -> b
 	punch(ppos - from, 4.0)
 	hitstop = 0.06
 	hud.hurt = 1.0
-	Sfx.play("sting", -5.0)
+	Sfx.play("sting", -8.0)
 	Sfx.play("punch")
+	if hp > 0:
+		Sfx.play("hurt_voice", 0.0, 0.05)
 	kick(0.06)
 	if hp <= 0 and spare_match and not match_used:
 		# The spare match: once per depth, the lamp relights itself.
@@ -1836,6 +1838,7 @@ func hurt_player(amount: int, from: Vector2, kb: float = 170.0, src = null) -> b
 		snuffed = false
 		death_t = 1.6
 		Sfx.play("death", 0.0, 0.0)
+		Sfx.play("death_voice", 0.0, 0.03)
 		Sfx.play_music("")
 		slow_t = 0.9
 		fx.spark(pcenter(), Color(1.0, 0.7, 0.3), 30, 110.0, 0.9, 2.0)
@@ -2011,8 +2014,8 @@ func _parry(e) -> bool:
 	hud.float_text(e.position + Vector2(0, -e.cy * 2.0 - 10.0), "PARRY", Color(1.0, 0.85, 0.4))
 	hud.flash_white(0.45)
 	slow_t = maxf(slow_t, 0.22)
-	Sfx.play("clank", 0.0)
-	Sfx.play("punch", -4.0)
+	Sfx.play("parry", 0.0, 0.05)
+	Sfx.play("punch", -6.0)
 	_say_once("parry", "Meet them as they come, and they break on you.")
 	main.tally("parries")
 	if stats["riposte"] > 0.0:
@@ -2046,7 +2049,7 @@ func _reflect(s: Dictionary) -> void:
 	s["node"].modulate = gold
 	fx.impact(s["pos"], dir.angle(), gold, 1.1)
 	hitstop = maxf(hitstop, 0.05)
-	Sfx.play("clank", -2.0, 0.2)
+	Sfx.play("deflect", -2.0, 0.15)
 	_say_once("reflect", "Struck back. Let it learn what it threw.")
 	main.tally("reflects")
 
