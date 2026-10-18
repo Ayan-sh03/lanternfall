@@ -26,6 +26,15 @@ func frames(n: int) -> void:
 		await get_tree().process_frame
 
 
+## Waits until `cond` holds, or `sec` seconds pass. A fixed wait is not enough
+## on a slow CI machine: game time per frame is capped, so few frames there
+## means little game time.
+func until(cond: Callable, sec: float) -> void:
+	var end := Time.get_ticks_msec() + int(sec * 1000.0)
+	while not cond.call() and Time.get_ticks_msec() < end:
+		await get_tree().process_frame
+
+
 ## A direction from Wren with open floor for at least `need` pixels.
 func open_dir(g, need: float = 70.0) -> Vector2:
 	for cand in [Vector2.RIGHT, Vector2.LEFT, Vector2.DOWN, Vector2.UP]:
@@ -61,6 +70,9 @@ func run() -> void:
 	main.new_game(1)
 	await w(2.5)
 	var g = main.game
+	# The floor is made with one sealed hollow wall. Look now: a stray blow or
+	# bolt in the tests below can find it by chance.
+	var sealed: bool = g.secrets.size() == 1 		and g.tiles[g.secrets[0]["w"].y * g.W + g.secrets[0]["w"].x] == 0 		and g.tiles[g.secrets[0]["c"].y * g.W + g.secrets[0]["c"].x] == 1
 	g.bot = true
 	g.bot_manual = true
 	g.hud.hint_t = 0.0
@@ -272,11 +284,14 @@ func run() -> void:
 		bitten.visible = false
 		var mhp: int = g.moth.hp
 		# Held still over open floor for the shot: it never stops circling otherwise.
+		# Along `dd`, which is known to be clear: a shot made inside a wall is gone
+		# at once, and right above Wren's feet can be wall on a random floor.
 		g.moth.set_process(false)
-		g.moth.position = g.ppos + Vector2(0, 6)
 		g.moth.body.position = Vector2(0, -12)
-		g.add_shot(g.moth.position + g.moth.body.position + Vector2(-6, 0), Vector2(60, 0), false, 1, Color(1.0, 0.3, 0.75))
-		await w(0.4)
+		var aim_at: Vector2 = g.pcenter() + dd * 20.0
+		g.moth.position = aim_at - g.moth.body.position
+		g.add_shot(aim_at - dd * 6.0, dd * 60.0, false, 1, Color(1.0, 0.3, 0.75))
+		await until(func(): return g.moth == null or g.moth.hp < mhp, 3.0)
 		check(g.moth == null or g.moth.hp < mhp, "a hex can hit it")
 		if g.moth != null:
 			g.moth.set_process(true)
@@ -295,7 +310,15 @@ func run() -> void:
 		var sc: Dictionary = g.secrets[0]
 		var wt: Vector2i = sc["w"]
 		var ct: Vector2i = sc["c"]
-		check(g.tiles[wt.y * g.W + wt.x] == 0 and g.tiles[ct.y * g.W + ct.x] == 1, "a sealed room behind a wall")
+		check(sealed, "a sealed room behind a wall")
+		if sc["open"]:
+			# Broken by chance above; close it again so the blow below has a wall to find.
+			sc["open"] = false
+			g.tiles[wt.y * g.W + wt.x] = 0
+			g.map_rev += 1
+			g._paint_map()
+			g._update_fov()
+			g._update_flow()
 		var hoard := false
 		for p in g.props:
 			if p["type"] == "chest" and p.get("secret", false):
