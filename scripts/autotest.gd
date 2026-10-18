@@ -247,16 +247,16 @@ func view3d_test() -> void:
 	g.bot = false
 	for off in [Vector2(40, 0), Vector2(-25, 30), Vector2(10, -45), Vector2(-60, -20)]:
 		var want: Vector2 = g.pcenter() + off
-		get_viewport().warp_mouse(v.cam.unproject_position(Vector3(want.x / 16.0, v.LIFT * v.K / 16.0, (want.y + v.LIFT) / 16.0)))
+		get_viewport().warp_mouse(g.view.view_xf * v.cam.unproject_position(Vector3(want.x / 16.0, v.LIFT * v.K / 16.0, (want.y + v.LIFT) / 16.0)))
 		await w(0.15)
 		# The camera leads toward the cursor, so check against where it is now.
 		var mp := get_viewport().get_mouse_position()
 		var got: Vector2 = g.mouse_world()
-		var back: Vector2 = v.cam.unproject_position(Vector3(got.x / 16.0, v.LIFT * v.K / 16.0, (got.y + v.LIFT) / 16.0))
-		var chest: Vector2 = v.cam.unproject_position(Vector3(g.ppos.x / 16.0, v.LIFT * v.K / 16.0, g.ppos.y / 16.0))
+		var back: Vector2 = g.view.view_xf * v.cam.unproject_position(Vector3(got.x / 16.0, v.LIFT * v.K / 16.0, (got.y + v.LIFT) / 16.0))
+		var chest: Vector2 = g.view.view_xf * v.cam.unproject_position(Vector3(g.ppos.x / 16.0, v.LIFT * v.K / 16.0, g.ppos.y / 16.0))
 		var ok := back.distance_to(mp) < 1.0
 		var on_screen := (mp - chest).normalized()
-		var aim_screen: Vector2 = (v.cam.unproject_position(Vector3((g.ppos.x + g.aim.x * 30.0) / 16.0, v.LIFT * v.K / 16.0, (g.ppos.y + g.aim.y * 30.0) / 16.0)) - chest).normalized()
+		var aim_screen: Vector2 = (g.view.view_xf * v.cam.unproject_position(Vector3((g.ppos.x + g.aim.x * 30.0) / 16.0, v.LIFT * v.K / 16.0, (g.ppos.y + g.aim.y * 30.0) / 16.0)) - chest).normalized()
 		var aims := aim_screen.dot(on_screen) > 0.995
 		if not (ok and aims):
 			fails += 1

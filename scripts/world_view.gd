@@ -79,7 +79,8 @@ func sync() -> void:
 	var k := z / s
 	var need := Vector2i(ceili(screen.x / k) + 4, ceili(screen.y / k) + 4)
 	if full:
-		_resize(need)
+		# Exactly the window: the 3D camera's field of view spans this picture.
+		_resize(Vector2i(roundi(screen.x / k), roundi(screen.y / k)))
 	elif need.x > _alloc.x or need.y > _alloc.y or need.x < _alloc.x * 0.6 or need.y < _alloc.y * 0.6:
 		# The camera zooms all the time; the picture is only resized when it no
 		# longer fits, and then with room to spare.
