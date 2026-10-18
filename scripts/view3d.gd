@@ -351,7 +351,7 @@ func screen_pos(p: Vector2) -> Vector2:
 ## The point under the mouse, as the 2D game would see it: aim is measured from
 ## Wren's chest, so the ray is met at chest height.
 func mouse_world() -> Vector2:
-	var mp := get_viewport().get_mouse_position()
+	var mp: Vector2 = game.view.view_mouse()
 	var o := cam.project_ray_origin(mp)
 	var d := cam.project_ray_normal(mp)
 	var h := LIFT * K / TS
@@ -545,7 +545,7 @@ func _update_camera() -> void:
 	var c2: Vector2 = game.cam.position + game.cam.offset
 	var z: float = game.cam.zoom.x
 	var target := Vector3(c2.x / TS, 0.4, (c2.y + 6.0) / TS)
-	var vis_h: float = get_viewport().get_visible_rect().size.y / (z * TS)
+	var vis_h: float = game.view.screen_size().y / (z * TS)
 	var dist := vis_h * 0.5 / tan(deg_to_rad(FOV) * 0.5) * 0.9
 	cam.position = target + Vector3(0.0, sin(PITCH), cos(PITCH)) * dist
 	cam.look_at(target, Vector3.UP)
@@ -670,7 +670,7 @@ static func _nmap(tex: Texture2D) -> Texture2D:
 	var id := tex.get_instance_id()
 	if nmaps.has(id):
 		return nmaps[id]
-	var img := tex.get_image()
+	var img := Art.image_of(tex)
 	var w := img.get_width()
 	var h := img.get_height()
 	var far := 99.0

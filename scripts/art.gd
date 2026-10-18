@@ -76,6 +76,24 @@ const WARDEN_F := {
 static var mat_add: CanvasItemMaterial
 static var mat_unlit: CanvasItemMaterial
 static var flash_shader: Shader
+## The white husk a fallen foe leaves for a moment; one material for them all.
+static var ghost_mat: ShaderMaterial
+## The image each texture was made from, by texture instance id. Reading a
+## texture back from the graphics card stalls the game until the card has
+## finished every frame it was given, so code that needs pixels asks here.
+static var images := {}
+
+
+static func _mk(img: Image) -> ImageTexture:
+	var t := ImageTexture.create_from_image(img)
+	images[t.get_instance_id()] = img
+	return t
+
+
+## A texture's pixels, without asking the graphics card for them.
+static func image_of(t: Texture2D) -> Image:
+	var img = images.get(t.get_instance_id())
+	return img if img != null else t.get_image()
 
 
 static func build() -> void:
@@ -88,6 +106,9 @@ static func build() -> void:
 	mat_unlit.light_mode = CanvasItemMaterial.LIGHT_MODE_UNSHADED
 	flash_shader = Shader.new()
 	flash_shader.code = "shader_type canvas_item;\nuniform float flash = 0.0;\nvoid fragment() {\n\tCOLOR.rgb = mix(COLOR.rgb, vec3(1.0), flash);\n}\n"
+	ghost_mat = ShaderMaterial.new()
+	ghost_mat.shader = flash_shader
+	ghost_mat.set_shader_parameter("flash", 1.0)
 
 	tex["glow"] = _radial(64, 2.0, false)
 	tex["light"] = _radial(128, 1.5, true)
@@ -95,7 +116,7 @@ static func build() -> void:
 	tex["stairs"] = _stairs()
 	var px := Image.create(1, 1, false, Image.FORMAT_RGBA8)
 	px.fill(Color.WHITE)
-	tex["px"] = ImageTexture.create_from_image(px)
+	tex["px"] = _mk(px)
 
 	# --- Wren, the last lampwright: a dark hooded figure, face lost in shadow but
 	# for the eyes, a red scarf, and a lantern hung from the hook of a long staff.
@@ -431,9 +452,9 @@ static func build() -> void:
 	var half := full.duplicate() as Image
 	var hw := half.get_width()
 	half.blit_rect(empty, Rect2i(hw / 2 + 1, 0, hw - hw / 2 - 1, half.get_height()), Vector2i(hw / 2 + 1, 0))
-	tex["heart2"] = ImageTexture.create_from_image(full)
-	tex["heart1"] = ImageTexture.create_from_image(half)
-	tex["heart0"] = ImageTexture.create_from_image(empty)
+	tex["heart2"] = _mk(full)
+	tex["heart1"] = _mk(half)
+	tex["heart0"] = _mk(empty)
 
 	_add("oil", [
 		"..ccc..",
@@ -588,7 +609,7 @@ static func _build_ui() -> void:
 				c = Color(0.02, 0.02, 0.03) if (x == 1 or y == 1) else Color(0.08, 0.07, 0.1)
 			nimg.set_pixel(x, y, c)
 	nimg.resize(36, 36, Image.INTERPOLATE_NEAREST)
-	tex["ui_niche"] = ImageTexture.create_from_image(nimg)
+	tex["ui_niche"] = _mk(nimg)
 
 	# A key cap for the number hints.
 	var kimg := Image.create(12, 12, false, Image.FORMAT_RGBA8)
@@ -606,7 +627,7 @@ static func _build_ui() -> void:
 				c = Color(0.13, 0.12, 0.15)
 			kimg.set_pixel(x, y, c)
 	kimg.resize(36, 36, Image.INTERPOLATE_NEAREST)
-	tex["ui_key"] = ImageTexture.create_from_image(kimg)
+	tex["ui_key"] = _mk(kimg)
 
 	# A rule with a diamond at its centre (tinted per card).
 	var dimg := Image.create(44, 5, false, Image.FORMAT_RGBA8)
@@ -618,7 +639,7 @@ static func _build_ui() -> void:
 			if dc + absi(y - 2) <= 2:
 				dimg.set_pixel(x, y, Color.WHITE)
 	dimg.resize(132, 15, Image.INTERPOLATE_NEAREST)
-	tex["ui_rule"] = ImageTexture.create_from_image(dimg)
+	tex["ui_rule"] = _mk(dimg)
 
 	_add_ui("ui_chain", [
 		"..kk..",
@@ -875,7 +896,7 @@ static func _slab(base: Color, rim: Color, line: Color, iron: Color, rivet: Colo
 		else:
 			_corner_px(img, n, 4, 4, fx, fy, rivet)
 	img.resize(n * 3, n * 3, Image.INTERPOLATE_NEAREST)
-	return ImageTexture.create_from_image(img)
+	return _mk(img)
 
 
 static func _corner_px(img: Image, n: int, x: int, y: int, fx: bool, fy: bool, c: Color) -> void:
@@ -885,7 +906,7 @@ static func _corner_px(img: Image, n: int, x: int, y: int, fx: bool, fy: bool, c
 static func _add_ui(id: String, rows: Array, pal: Dictionary) -> void:
 	var img := _ascii(rows, pal, true)
 	img.resize(img.get_width() * 3, img.get_height() * 3, Image.INTERPOLATE_NEAREST)
-	tex[id] = ImageTexture.create_from_image(img)
+	tex[id] = _mk(img)
 
 
 ## A ring-and-dot crosshair for the mouse, in lamp colours.
@@ -917,12 +938,12 @@ static func _anim(id: String, rows: Array, pal: Dictionary, parts: Dictionary, f
 		var offs: Dictionary = frames[fname]
 		var img := _compose(grid, parts, offs)
 		_outline(img)
-		tex[fid] = ImageTexture.create_from_image(img)
+		tex[fid] = _mk(img)
 		pad[fid] = PAD
 		if egrid == null:
 			continue
 		var eimg := _compose(egrid, parts, offs)
-		tex[fid + "_e"] = ImageTexture.create_from_image(eimg)
+		tex[fid + "_e"] = _mk(eimg)
 		var sum := Vector2.ZERO
 		var n := 0
 		for y in eimg.get_height():
@@ -988,7 +1009,7 @@ static func _outline(img: Image) -> void:
 
 
 static func _add(id: String, rows: Array, pal: Dictionary, outline: bool = true, emissive: String = "") -> void:
-	tex[id] = ImageTexture.create_from_image(_ascii(rows, pal, outline))
+	tex[id] = _mk(_ascii(rows, pal, outline))
 	if emissive == "":
 		return
 	# A second texture holding only the glowing pixels. It is drawn unlit on top
@@ -996,7 +1017,7 @@ static func _add(id: String, rows: Array, pal: Dictionary, outline: bool = true,
 	var epal := {}
 	for ch in emissive:
 		epal[ch] = pal[ch]
-	tex[id + "_e"] = ImageTexture.create_from_image(_ascii(rows, epal, false))
+	tex[id + "_e"] = _mk(_ascii(rows, epal, false))
 	var w := 0
 	for r in rows:
 		w = maxi(w, (r as String).length())
@@ -1055,7 +1076,7 @@ static func _radial(size: int, power: float, as_light: bool) -> ImageTexture:
 			var d := Vector2(x + 0.5 - half, y + 0.5 - half).length() / half
 			var f := pow(clampf(1.0 - d, 0.0, 1.0), power)
 			img.set_pixel(x, y, Color(f, f, f, 1.0) if as_light else Color(1, 1, 1, f))
-	return ImageTexture.create_from_image(img)
+	return _mk(img)
 
 
 static func _shadow() -> ImageTexture:
@@ -1065,7 +1086,7 @@ static func _shadow() -> ImageTexture:
 			var d := Vector2((x + 0.5 - 7.0) / 7.0, (y + 0.5 - 3.0) / 3.0).length()
 			if d < 1.0:
 				img.set_pixel(x, y, Color(0, 0, 0, 0.42))
-	return ImageTexture.create_from_image(img)
+	return _mk(img)
 
 
 static func _stairs() -> ImageTexture:
@@ -1079,7 +1100,7 @@ static func _stairs() -> ImageTexture:
 			if x < 2 or x > 13:
 				c = Color(0.12, 0.1, 0.12)
 			img.set_pixel(x, y, c)
-	return ImageTexture.create_from_image(img)
+	return _mk(img)
 
 
 # --- Dungeon tiles ------------------------------------------------------------

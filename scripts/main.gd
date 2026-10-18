@@ -9,11 +9,14 @@ const Story = preload("res://scripts/story.gd")
 const AutoS = preload("res://scripts/autotest.gd")
 const ShowS = preload("res://scripts/showcase.gd")
 const Nemesis = preload("res://scripts/nemesis.gd")
+const WorldViewS = preload("res://scripts/world_view.gd")
 
 const SLOTS := 3
 
 var game = null
 var hud
+## The world is drawn into this small picture and scaled up (see world_view.gd).
+var world: WorldViewS
 var boss_seen := false
 var slot := 0
 var pending_depth := 1
@@ -63,6 +66,8 @@ func _ready() -> void:
 	if not OS.has_feature("mobile"):
 		_set_icon()
 	_load_profile()
+	world = WorldViewS.new()
+	add_child(world)
 	hud = HudS.new()
 	hud.main = self
 	hud.touch = touch
@@ -83,11 +88,18 @@ func _ready() -> void:
 
 
 func _set_icon() -> void:
-	var src: Image = Art.tex["player0"].get_image()
+	var src: Image = Art.image_of(Art.tex["player0"])
 	var icon := Image.create(24, 24, false, Image.FORMAT_RGBA8)
 	icon.blit_rect(src, Rect2i(0, 0, src.get_width(), src.get_height()), Vector2i((24 - src.get_width()) / 2, 1))
 	icon.resize(128, 128, Image.INTERPOLATE_NEAREST)
 	DisplayServer.set_icon(icon)
+
+
+## The game lives in the world picture's own viewport, which hears nothing by
+## itself; whatever the HUD leaves is handed on to it.
+func _unhandled_input(ev: InputEvent) -> void:
+	if game != null and is_instance_valid(game) and not game.is_queued_for_deletion():
+		game._unhandled_input(ev)
 
 
 func _input(ev: InputEvent) -> void:
@@ -411,8 +423,9 @@ func new_game(depth: int, restore: Dictionary = {}, prepared: bool = false) -> v
 	game = GameS.new()
 	game.main = self
 	game.hud = hud
-	add_child(game)
-	move_child(game, 0)
+	game.view = world
+	world.game = game
+	world.vp.add_child(game)
 	hud.game = game
 	game.start(depth, restore, prepared)
 

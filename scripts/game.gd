@@ -58,6 +58,8 @@ var fog_sprite: Sprite2D
 var view3d = null
 var ambient_node: CanvasModulate
 var cam: Camera2D
+## Draws the world small and scales it up; owns the mapping to the window.
+var view = null
 var enemies: Array = []
 var shots: Array = []
 var props: Array = []
@@ -278,8 +280,10 @@ func _build_nodes() -> void:
 	add_child(fog_sprite)
 	cam = Camera2D.new()
 	cam.zoom = Vector2(3, 3)
+	# The camera only says where to look; the world view (world_view.gd) does
+	# the looking, at the art's own pixel size.
+	cam.enabled = false
 	add_child(cam)
-	cam.make_current()
 
 	pnode = Node2D.new()
 	ents.add_child(pnode)
@@ -788,14 +792,14 @@ func vis_at(p: Vector2) -> bool:
 func mouse_world() -> Vector2:
 	if view3d != null and view3d.active:
 		return view3d.mouse_world()
-	return get_global_mouse_position()
+	return get_viewport().canvas_transform.affine_inverse() * view.view_mouse()
 
 
 ## Where a map point is drawn on screen, whichever view is drawing.
 func screen_pos(p: Vector2) -> Vector2:
 	if view3d != null and view3d.active:
-		return view3d.screen_pos(p)
-	return get_viewport().get_canvas_transform() * p
+		return view.view_xf * view3d.screen_pos(p)
+	return view.view_xf * (get_viewport().canvas_transform * p)
 
 
 func pcenter() -> Vector2:
@@ -915,6 +919,14 @@ func _update_fog(dt: float) -> void:
 # --- Main loop ------------------------------------------------------------------
 
 func _process(dt: float) -> void:
+	_tick(dt)
+	# The world picture follows the camera in the same frame, so the HUD's
+	# labels drawn over the world line up with it.
+	if view != null:
+		view.sync()
+
+
+func _tick(dt: float) -> void:
 	dt = minf(dt, 0.05)
 	if hud == null or W == 0:
 		return
@@ -930,12 +942,16 @@ func _process(dt: float) -> void:
 	anim_t += dt
 	if not dead:
 		run_time += dt
+	var pt := Time.get_ticks_usec()
 	_update_player(dt)
+	pt = _pt("player", pt)
 	var nt := Vector2i(int(ppos.x / TS), int(ppos.y / TS))
 	if nt != ptile:
 		ptile = nt
 		_update_fov()
+		pt = _pt("fov", pt)
 		_update_flow()
+		pt = _pt("flow", pt)
 	for e in enemies.duplicate():
 		if e.dead:
 			continue
@@ -944,16 +960,43 @@ func _process(dt: float) -> void:
 			e.visible = false
 			continue
 		e.tick(dt)
+	pt = _pt("enemies", pt)
 	_update_shots(dt)
+	pt = _pt("shots", pt)
 	_update_powers(dt)
+	pt = _pt("powers", pt)
 	surf.tick(dt)
+	pt = _pt("surfaces", pt)
 	_update_pickups(dt)
+	pt = _pt("pickups", pt)
 	_update_gloam(dt)
+	pt = _pt("gloam", pt)
 	_update_props(dt)
+	pt = _pt("props", pt)
 	_update_fog(dt)
+	pt = _pt("fog", pt)
 	_update_camera(dt)
+	pt = _pt("camera", pt)
 	_purge()
+	pt = _pt("purge", pt)
 	_update_events(dt)
+	pt = _pt("events", pt)
+
+
+## Profiling: microseconds spent in each part of the update, summed while on.
+var prof := {}
+var prof_max := {}
+var prof_on := false
+
+
+func _pt(part: String, t0: int) -> int:
+	var t1 := Time.get_ticks_usec()
+	if prof_on:
+		prof[part] = prof.get(part, 0) + (t1 - t0)
+		prof_max[part] = maxi(prof_max.get(part, 0), t1 - t0)
+	if prof_on and t1 - t0 > 8000:
+		print("PERF SPIKE %s %.1f ms (frame %d, enemies %d)" % [part, (t1 - t0) / 1000.0, Engine.get_frames_drawn(), enemies.size()])
+	return t1
 
 
 func _unhandled_input(ev: InputEvent) -> void:
@@ -1117,7 +1160,7 @@ func _update_player(dt: float) -> void:
 	pglow.modulate.a = 0.5 * flick * light_k * (1.0 - snuff_k)
 	staff_e.modulate.a = 1.0 - 0.85 * snuff_k
 	_record_echo(pframe)
-	var reach: Vector2 = get_viewport().get_visible_rect().size * 0.5 / cam.zoom.x + Vector2(125, 125)
+	var reach: Vector2 = view.screen_size() * 0.5 / cam.zoom.x + Vector2(125, 125)
 	for l in lights:
 		var off: Vector2 = l.global_position - cam.position
 		l.enabled = absf(off.x) < reach.x and absf(off.y) < reach.y
@@ -1897,7 +1940,7 @@ func _pixels(tex: Texture2D) -> Array:
 	if pix_cache.has(id):
 		return pix_cache[id]
 	var out: Array = []
-	var img := tex.get_image()
+	var img := Art.image_of(tex)
 	if img != null:
 		for y in img.get_height():
 			for x in img.get_width():
@@ -1940,10 +1983,7 @@ func _disintegrate(e) -> void:
 	ghost.flip_h = spr.flip_h
 	ghost.position = e.position
 	ghost.scale = spr.scale
-	var gm := ShaderMaterial.new()
-	gm.shader = Art.flash_shader
-	gm.set_shader_parameter("flash", 1.0)
-	ghost.material = gm
+	ghost.material = Art.ghost_mat
 	ents.add_child(ghost)
 	var tw := ghost.create_tween().set_parallel(true)
 	tw.tween_property(ghost, "scale", Vector2(spr.scale.x * 1.35, spr.scale.y * 0.15), 0.2).set_ease(Tween.EASE_IN)
@@ -2547,11 +2587,10 @@ func kick(a: float) -> void:
 ## The camera leads where Wren is heading and looking, pulls back as a fight
 ## grows, frames the Warden, and leans in for conversations and deaths.
 func _update_camera(dt: float) -> void:
-	var vp := get_viewport()
 	var talking: bool = hud.modal == "dialog" or hud.modal == "choice"
 	var look := Vector2.ZERO
 	if pad == null and not bot and not dead and not hud.blocking():
-		look = (vp.get_mouse_position() - vp.get_visible_rect().size * 0.5) / cam.zoom.x * 0.18
+		look = (view.screen_mouse() - view.screen_size() * 0.5) / cam.zoom.x * 0.18
 	var target := ppos + Vector2(0, -6) + look
 	if not hud.blocking():
 		target += pvel * 0.16
