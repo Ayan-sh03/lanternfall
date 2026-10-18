@@ -667,34 +667,81 @@ var probe_worst := 0.0
 var probe_script := 0.0
 var probe_script_worst := 0.0
 var probe_draws := 0.0
+var probe_rcpu := 0.0
+var probe_rgpu := 0.0
+var probe_t0 := 0
+var probe_hist := PackedFloat32Array()
+
+
+## The window, and the world picture drawn into it (see world_view.gd).
+func _probe_vps() -> Array:
+	var out := [get_viewport().get_viewport_rid()]
+	if main.world != null:
+		out.append(main.world.vp.get_viewport_rid())
+	return out
+
+
+func _probe_frame_start() -> void:
+	probe_t0 = Time.get_ticks_usec()
 
 
 func _process(dt: float) -> void:
 	if not probe_on:
 		return
+	# This node runs last (highest process priority), so this is the time all
+	# scripts' _process took this frame.
+	var sp := (Time.get_ticks_usec() - probe_t0) / 1000000.0
 	probe_frames += 1
 	probe_sum += dt
 	probe_worst = maxf(probe_worst, dt)
-	var sp: float = Performance.get_monitor(Performance.TIME_PROCESS)
+	probe_hist.append(dt)
 	probe_script += sp
 	probe_script_worst = maxf(probe_script_worst, sp)
 	probe_draws += Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME)
+	probe_rcpu += RenderingServer.get_frame_setup_time_cpu()
+	for vp in _probe_vps():
+		probe_rcpu += RenderingServer.viewport_get_measured_render_time_cpu(vp)
+		probe_rgpu += RenderingServer.viewport_get_measured_render_time_gpu(vp)
 
 
 func probe(label: String, secs: float) -> void:
+	process_priority = 1 << 20
+	if not get_tree().process_frame.is_connected(_probe_frame_start):
+		get_tree().process_frame.connect(_probe_frame_start)
+	for vp in _probe_vps():
+		RenderingServer.viewport_set_measure_render_time(vp, true)
 	probe_frames = 0
 	probe_sum = 0.0
 	probe_worst = 0.0
 	probe_script = 0.0
 	probe_script_worst = 0.0
 	probe_draws = 0.0
+	probe_rcpu = 0.0
+	probe_rgpu = 0.0
+	probe_hist = PackedFloat32Array()
+	var g = main.game
+	if g != null:
+		g.prof = {}
+		g.prof_max = {}
+		g.prof_on = true
 	probe_on = true
 	await w(secs)
 	probe_on = false
 	var n := maxi(probe_frames, 1)
-	print("PERF %-22s fps %6.1f   frame avg %5.2f ms  worst %5.1f ms   script avg %5.2f ms  worst %5.1f ms   draw calls %4.0f" % [
-		label, n / maxf(probe_sum, 0.001), probe_sum / n * 1000.0, probe_worst * 1000.0,
-		probe_script / n * 1000.0, probe_script_worst * 1000.0, probe_draws / n])
+	probe_hist.sort()
+	var p99: float = probe_hist[int(probe_hist.size() * 0.99)] if probe_hist.size() > 0 else 0.0
+	print("PERF %-22s fps %6.1f   frame avg %5.2f ms  p99 %5.1f  worst %5.1f ms   scripts avg %5.2f ms  worst %5.1f ms   draw cpu %5.2f ms  gpu %5.2f ms   draw calls %4.0f   nodes %d" % [
+		label, n / maxf(probe_sum, 0.001), probe_sum / n * 1000.0, p99 * 1000.0, probe_worst * 1000.0,
+		probe_script / n * 1000.0, probe_script_worst * 1000.0, probe_rcpu / n, probe_rgpu / n, probe_draws / n,
+		Performance.get_monitor(Performance.OBJECT_NODE_COUNT)])
+	if g != null and is_instance_valid(g):
+		g.prof_on = false
+		var parts: Array = g.prof.keys()
+		parts.sort_custom(func(a, b): return g.prof[a] > g.prof[b])
+		var line := "PERF   game update per frame:"
+		for k in parts:
+			line += "  %s %.2f/%.1f" % [k, g.prof[k] / 1000.0 / n, g.prof_max[k] / 1000.0]
+		print(line + "  (avg/worst ms)")
 
 
 ## Timing run: startup, floor generation, and frame time idle and in a big fight.
@@ -948,6 +995,9 @@ func run() -> void:
 	if OS.get_cmdline_user_args().has("--touch"):
 		touch_test()
 		return
+	if OS.get_cmdline_user_args().has("--perfab"):
+		perf_ablate()
+		return
 	if OS.get_cmdline_user_args().has("--perf"):
 		perf()
 		return
@@ -1111,4 +1161,84 @@ func run() -> void:
 	await shot("46_end")
 	main.delete_save(9)
 	print("AUTOTEST DONE")
+	get_tree().quit()
+
+
+func _all(n: Node, out: Array) -> void:
+	for c in n.get_children():
+		out.append(c)
+		_all(c, out)
+
+
+## Turns the picture's layers off one at a time in a fixed fight, to see what
+## each one costs (-- --autotest --perfab, with --disable-vsync).
+func perf_ablate() -> void:
+	main.slot = 9
+	await w(1.0)
+	main.hud._close_modal()
+	main.new_game(1)
+	var g = main.game
+	g.load_floor(3)
+	await w(1.0)
+	g.god = true
+	g.xp_next = 9999999
+	for id in ["orbit", "trail", "shatter", "twin", "wave", "burn"]:
+		g.apply_boon(id)
+	for k in 30:
+		var kind: String = ["husk", "moth", "cantor", "slime", "brute", "wisp"][k % 6]
+		var e = g.spawn_enemy(kind, g.ppos + Vector2.from_angle(k * 0.7) * (30.0 + k * 2.0), 0)
+		e.awake = true
+		e.hp *= 60.0
+	await w(1.5)
+	var nodes: Array = []
+	_all(g, nodes)
+	var lights_n := 0
+	var lights_on := 0
+	var glows: Array = []
+	var sprites := 0
+	for n in nodes:
+		if n is PointLight2D:
+			lights_n += 1
+			lights_on += int(n.enabled)
+		elif n is CanvasItem and n.material == g.Art.mat_add:
+			glows.append(n)
+		if n is Sprite2D:
+			sprites += 1
+	print("PERF scene: %d nodes, %d sprites, %d additive glows, %d lights (%d on), window %s" % [
+		nodes.size(), sprites, glows.size(), lights_n, lights_on, get_window().size])
+	var lit: Array = nodes.filter(func(n): return is_instance_valid(n) and n is PointLight2D)
+	var tests := {
+		"no lights": func(on):
+			for l in lit:
+				if is_instance_valid(l):
+					l.visible = on,
+		"only Wren's light": func(on):
+			for l in lit:
+				if is_instance_valid(l) and l != g.plight:
+					l.visible = on,
+		"no glows": func(on):
+			for n in glows:
+				if is_instance_valid(n):
+					n.visible = on,
+		"no fog": func(on): g.fog_sprite.visible = on,
+		"no fx": func(on): g.fx.visible = on,
+		"no surfaces": func(on): g.surf.visible = on,
+		"no decals": func(on): g.decal_node.visible = on,
+		"no map": func(on): g.map_root.visible = on,
+		"no enemies/props": func(on): g.ents.visible = on,
+		"no hud": func(on):
+			for c in main.hud.get_children():
+				if c is CanvasItem:
+					c.visible = on,
+		"full-size world (--hires)": func(on):
+			main.world.hires = not on if not OS.get_cmdline_user_args().has("--hires") else on,
+	}
+	for k in tests:
+		await probe("  base", 1.5)
+		tests[k].call(false)
+		await w(0.2)
+		await probe(k, 1.5)
+		tests[k].call(true)
+		await w(0.2)
+	main.delete_save(9)
 	get_tree().quit()
