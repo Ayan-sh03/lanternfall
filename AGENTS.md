@@ -4,7 +4,7 @@ Guide for coding agents (Claude Code, Codex, ...) changing Lanternfall. For what
 
 ## Overview
 
-Lanternfall is a dark-fantasy pixel-art dungeon crawler in Godot 4.3 (GL Compatibility renderer) for Windows and Android. GDScript only, all of it in `scripts/`. `main.tscn` is a single `Node` with `main.gd` on it; every other node is built in code. All art is drawn in code (`scripts/art.gd`); there are no image assets for sprites. Audio is in `audio/` (CC0, listed in `CREDITS.txt`), fonts in `fonts/`. MIT licence.
+Lanternfall is a dark-fantasy pixel-art dungeon crawler in Godot 4.3 (GL Compatibility renderer) for Windows and Android. GDScript only, all of it in `scripts/`. `main.tscn` is a single `Node` with `main.gd` on it; every other node is built in code. All art is drawn in code (`scripts/art.gd`); there are no image assets for sprites. Audio is in `audio/` (effects CC0, three music tracks CC-BY/OGA-BY; all listed in `CREDITS.txt`), fonts in `fonts/`. MIT licence.
 
 ## Run and build
 
@@ -19,7 +19,7 @@ Lanternfall is a dark-fantasy pixel-art dungeon crawler in Godot 4.3 (GL Compati
 - `main.gd` (Node): entry point. Owns the HUD, save slots and profile, and the run flow. Makes `world` (a `WorldView`) and puts each new `game` inside `world.vp`. The game lives in a SubViewport and hears no input on its own, so `main._unhandled_input` forwards events to `game._unhandled_input`.
 - `world_view.gd`: draws the 2D world (see next section).
 - `game.gd`: one run. Floor generation (via `dungeon.gd`), player, enemies, shots, powers, pickups, fog of war, camera intent. `_process` calls `_tick(dt)` then `view.sync()`. Has a section profiler: `prof_on`, `prof`, `_pt(name, t0)`.
-- `enemy.gd`: foes (husk, moth, cantor, brute, slime/slimelet, wisp, gloam, the warden boss). `hurt(amount, kb, col)` is the damage entry point.
+- `enemy.gd`: foes (husk, moth, cantor, brute, slime/slimelet, wisp, gloam, the warden boss). `hurt(amount, kb, col, snd)` is the damage entry point; `snd` names the kind of blow (`hit`, `hit_heavy`, `crit`, `burn`...) so each sounds different.
 - `hud.gd` (CanvasLayer): full-resolution UI; labels over the world are placed with `game.screen_pos`. `touch.gd`: on-screen pad. `story.gd`: all the writing.
 - `fx.gd`: particles, arcs and rings, drawn with `_draw`. `surfaces.gd`: oil, fire, webs, water, slick. `echo.gd`, `moth.gd` (Flit), `nemesis.gd`: features.
 - `view3d.gd`: optional 3D renderer that watches the 2D state and re-draws it; game rules never run in 3D.
@@ -52,7 +52,7 @@ There is no unit-test framework; `scripts/autotest.gd` is the harness. Run from 
 godot --path . -- --autotest --<mode> [--shotdir=<dir>]
 ```
 
-Modes (dispatched in `run()` near line 990): `--quick`, `--mechanics` (combat rules, parry etc.), `--progress` (profile, saves, upgrades), `--wild` (wildtest.gd, random play), `--ui` and `--anim` and `--sheet` (screenshots), `--touch`, `--icons` (rewrites `windows/icon.png`), `--view3d` (checks the 3D mouse aim projects back to the cursor, view switching, saves shots), `--perf`, `--perfab`. With no mode it plays every floor with a bot and saves screenshots to `--shotdir`.
+Modes (dispatched in `run()` near line 990): `--quick`, `--mechanics` (combat rules, parry etc.), `--progress` (profile, saves, upgrades), `--wild` (wildtest.gd, random play), `--ui` and `--anim` and `--sheet` (screenshots), `--touch`, `--icons` (rewrites `windows/icon.png`), `--view3d` (checks the 3D mouse aim projects back to the cursor, view switching, saves shots), `--perf`, `--perfab`, `--audio` (every cue named in the scripts resolves to a sound; voice limits hold). With no mode it plays every floor with a bot and saves screenshots to `--shotdir`.
 
 - Results are printed lines tagged with the area (`MECH`, `VIEW3D`, `PERF`...); read them for `ok` / `FAIL` / `PASS`. `--view3d` ends with `VIEW3D PASS` or `VIEW3D FAIL n`.
 - Harmless noise at shutdown: "Unreferenced static string", "Pages in use exist at exit", "PagedAllocator".
@@ -74,9 +74,14 @@ Measured on an Intel Iris Xe laptop (Oct 2026).
 
 `sfx.gd` is the `Sfx` autoload. It keeps a pool of `AudioStreamPlayer`s. Recorded effects are loaded from `audio/sfx/`; the id is the filename minus `_<n>.ogg` (`bell_0.ogg`, `bell_1.ogg` are variants of `bell`). Music tracks live in `audio/music/`. A set of cues is also synthesised at startup on a thread (`_build_sfx`); a recording wins over a synthesised cue of the same id, and an id with neither plays nothing. The autotest prints `AUDIO n recorded sounds, m music tracks` on start.
 
+- `ALIAS` maps a cue with no sound of its own to one that has (`crit` falls back to `hit_heavy`, then `hit`). `resolve()` prefers a cue's own files, so adding `<cue>_0.ogg` is all it takes to give it a voice.
+- Voices are managed: `PRIO` (a death cry outranks a footstep), `GAP` (a repeat of the same cue within the gap is dropped, so a burst of 30 hits plays once), `MAX_SAME` (concurrent copies per cue). A new sound only steals a voice of equal or lower priority.
+- `FILE_VOL` trims each recorded cue's level in dB. New takes were level-matched to the loud part of the sound they replaced; keep doing that so the mix holds.
+- Every `.ogg` needs a `.ogg.import` holding `[remap]` and `importer="keep"`; the export filter includes `*.ogg`.
+
 ## Assets and licences
 
-Only CC0 or CC-BY (or OFL for fonts) assets. Record every new file in `CREDITS.txt` (title, author, source URL, licence) in the same change. Sprites and tiles are drawn in code, not imported.
+Only CC0, CC-BY or OGA-BY (or OFL for fonts) assets; attribution licences need the author credited in `CREDITS.txt`, which ships in the game. Record every new file in `CREDITS.txt` (title, author, source URL, licence) in the same change. Sprites and tiles are drawn in code, not imported.
 
 ## Git workflow
 

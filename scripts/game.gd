@@ -1104,7 +1104,7 @@ func _update_player(dt: float) -> void:
 			for e in enemies:
 				if not e.dead and not dash_hit.has(e) and (e.center() - pcenter()).length() < e.hit_r + 9.0:
 					dash_hit.append(e)
-					e.hurt(stats["sear"], dash_dir * 60.0)
+					e.hurt(stats["sear"], dash_dir * 60.0, Color(1.0, 0.92, 0.65), "burn")
 					if stats["flashstep"] > 0.0 and not dash_refunded:
 						dash_refunded = true
 						dash_stock = mini(stats["dash_n"], dash_stock + 1)
@@ -1273,7 +1273,7 @@ func _flare() -> void:
 			e.visible = false
 			_disintegrate(e)
 			continue
-		e.hurt(6.0, (e.center() - o).normalized() * 160.0, Color(1.0, 0.9, 0.6))
+		e.hurt(6.0, (e.center() - o).normalized() * 160.0, Color(1.0, 0.9, 0.6), "hit_bolt")
 		if not e.dead:
 			e.stun = maxf(e.stun, 1.4)
 			e.state = "rest" if e.state != "dormant" else e.state
@@ -1690,11 +1690,12 @@ func do_slash() -> void:
 				main.tally("ambushes")
 			var crit: bool = rng.randf() < stats["crit"] or sure or unseen
 			if crit:
-				e.hurt(dmg * 2.0, aim * 170.0, Color(1.0, 0.55, 0.15))
+				e.hurt(dmg * 2.0, aim * 170.0, Color(1.0, 0.55, 0.15), "crit")
 				fx.spark(e.center(), Color(1.0, 0.8, 0.3), 10, 110.0, 0.35, 2.0)
 				crits += 1
 			else:
-				e.hurt(dmg * rng.randf_range(0.9, 1.1), aim * (150.0 if heavy else 95.0))
+				e.hurt(dmg * rng.randf_range(0.9, 1.1), aim * (150.0 if heavy else 95.0), Color(1.0, 0.92, 0.65),
+					"hit_heavy" if heavy else "hit")
 			# Where the staff meets the foe: on its near side, toward Wren.
 			var at: Vector2 = e.center() - v.normalized() * e.hit_r * 0.6
 			fx.impact(at, aim.angle(), e.tint, 1.25 if heavy or crit else 0.8)
@@ -1812,8 +1813,10 @@ func hurt_player(amount: int, from: Vector2, kb: float = 170.0, src = null) -> b
 	punch(ppos - from, 4.0)
 	hitstop = 0.06
 	hud.hurt = 1.0
-	Sfx.play("sting", -5.0)
+	Sfx.play("sting", -8.0)
 	Sfx.play("punch")
+	if hp > 0:
+		Sfx.play("hurt_voice", 0.0, 0.05)
 	kick(0.06)
 	if hp <= 0 and spare_match and not match_used:
 		# The spare match: once per depth, the lamp relights itself.
@@ -1835,6 +1838,7 @@ func hurt_player(amount: int, from: Vector2, kb: float = 170.0, src = null) -> b
 		snuffed = false
 		death_t = 1.6
 		Sfx.play("death", 0.0, 0.0)
+		Sfx.play("death_voice", 0.0, 0.03)
 		Sfx.play_music("")
 		slow_t = 0.9
 		fx.spark(pcenter(), Color(1.0, 0.7, 0.3), 30, 110.0, 0.9, 2.0)
@@ -1909,7 +1913,7 @@ func enemy_died(e) -> void:
 		fx.spark(e.center(), Color(1.0, 0.6, 0.2), 14, 120.0, 0.4, 2.0)
 		for o in enemies:
 			if o != e and not o.dead and (o.position - e.position).length() < 36.0:
-				o.hurt(stats["shatter"], (o.position - e.position).normalized() * 120.0, Color(1.0, 0.6, 0.2))
+				o.hurt(stats["shatter"], (o.position - e.position).normalized() * 120.0, Color(1.0, 0.6, 0.2), "shatter")
 				if stats["chainburst"] > 0.0 and not o.dead:
 					o.burn_t = 3.0
 					o.burn_dps = maxf(stats["burn"], 6.0)
@@ -1997,7 +2001,7 @@ func _parry(e) -> bool:
 	var attacking: bool = e.state == "lunge" or e.state == "charge" or (e.state == "wind" and e.st < 0.14)
 	if not attacking or e.kind == "warden":
 		return false
-	e.hurt(stats["dmg"] * 1.5, aim * 260.0)
+	e.hurt(stats["dmg"] * 1.5, aim * 260.0, Color(1.0, 0.92, 0.65), "crit")
 	if not e.dead:
 		e.state = "rest"
 		e.st = 0.4
@@ -2010,8 +2014,8 @@ func _parry(e) -> bool:
 	hud.float_text(e.position + Vector2(0, -e.cy * 2.0 - 10.0), "PARRY", Color(1.0, 0.85, 0.4))
 	hud.flash_white(0.45)
 	slow_t = maxf(slow_t, 0.22)
-	Sfx.play("clank", 0.0)
-	Sfx.play("punch", -4.0)
+	Sfx.play("parry", 0.0, 0.05)
+	Sfx.play("punch", -6.0)
 	_say_once("parry", "Meet them as they come, and they break on you.")
 	main.tally("parries")
 	if stats["riposte"] > 0.0:
@@ -2045,7 +2049,7 @@ func _reflect(s: Dictionary) -> void:
 	s["node"].modulate = gold
 	fx.impact(s["pos"], dir.angle(), gold, 1.1)
 	hitstop = maxf(hitstop, 0.05)
-	Sfx.play("clank", -2.0, 0.2)
+	Sfx.play("deflect", -2.0, 0.15)
 	_say_once("reflect", "Struck back. Let it learn what it threw.")
 	main.tally("reflects")
 
@@ -2183,7 +2187,7 @@ func _update_shots(dt: float) -> void:
 				if e.dead or s["hit"].has(e):
 					continue
 				if (e.center() - pos).length() < e.hit_r + s["r"]:
-					e.hurt(s["dmg"], s["vel"].normalized() * 90.0)
+					e.hurt(s["dmg"], s["vel"].normalized() * 90.0, Color(1.0, 0.92, 0.65), "hit_bolt")
 					fx.impact(pos, s["vel"].angle(), s["col"], 0.6)
 					if stats["starfall"] > 0.0 and not s.get("split", false):
 						for sgn in [-1.0, 1.0]:
@@ -2752,7 +2756,7 @@ func _nova_burst(radius: float, dmg: float) -> void:
 			continue
 		var v: Vector2 = e.center() - o
 		if v.length() < radius + e.hit_r:
-			e.hurt(dmg, v.normalized() * 240.0, Color(1.0, 0.6, 0.2))
+			e.hurt(dmg, v.normalized() * 240.0, Color(1.0, 0.6, 0.2), "hit_heavy")
 			e.stun = maxf(e.stun, 0.4)
 	for s in shots:
 		if not s["friendly"] and (s["pos"] - o).length() < radius + 6.0:
@@ -2803,7 +2807,7 @@ func cast_spark() -> void:
 		var to: Vector2 = cur.center()
 		fx.bolt(from, to, Color(0.65, 0.85, 1.0))
 		fx.spark(to, Color(0.7, 0.9, 1.0), 8, 90.0, 0.3, 1.5)
-		cur.hurt(dmg, (to - from).normalized() * 60.0, Color(0.7, 0.9, 1.0))
+		cur.hurt(dmg, (to - from).normalized() * 60.0, Color(0.7, 0.9, 1.0), "zap_hit")
 		cur.stun = maxf(cur.stun, 0.7)
 		dmg *= 0.85
 		from = to
@@ -2877,7 +2881,7 @@ func _update_powers(dt: float) -> void:
 				continue
 			e.slow_t = 0.3
 			if pulse:
-				e.hurt(7.0 * stats["power"], Vector2.ZERO, Color(1.0, 0.75, 0.35))
+				e.hurt(7.0 * stats["power"], Vector2.ZERO, Color(1.0, 0.75, 0.35), "ward_hit")
 		for s in shots:
 			if not s["friendly"] and (s["pos"] - wp).length() < wr:
 				s["life"] = 0.0
@@ -2908,7 +2912,7 @@ func _update_powers(dt: float) -> void:
 			for e in enemies:
 				if not e.dead and (e.position - fp).length() < 11.0 and e.orbit_cd <= 0.0:
 					e.orbit_cd = 0.25
-					e.hurt(stats["trail"], Vector2.ZERO, Color(1.0, 0.6, 0.2))
+					e.hurt(stats["trail"], Vector2.ZERO, Color(1.0, 0.6, 0.2), "burn")
 		if f["t"] <= 0.0:
 			fires.remove_at(i)
 		i -= 1
@@ -2926,7 +2930,7 @@ func _update_powers(dt: float) -> void:
 			for e in enemies:
 				if not e.dead and e.orbit_cd <= 0.0 and (e.center() - mp).length() < e.hit_r + 4.0:
 					e.orbit_cd = 0.45
-					e.hurt(7.0 * stats["power"] * stats["mote_k"], (e.center() - pc).normalized() * 50.0, Color(1.0, 0.7, 0.3))
+					e.hurt(7.0 * stats["power"] * stats["mote_k"], (e.center() - pc).normalized() * 50.0, Color(1.0, 0.7, 0.3), "ember_hit")
 			for s in shots:
 				if not s["friendly"] and (s["pos"] - mp).length() < 6.0:
 					s["life"] = 0.0

@@ -995,6 +995,9 @@ func run() -> void:
 	if OS.get_cmdline_user_args().has("--touch"):
 		touch_test()
 		return
+	if OS.get_cmdline_user_args().has("--audio"):
+		audio_test()
+		return
 	if OS.get_cmdline_user_args().has("--perfab"):
 		perf_ablate()
 		return
@@ -1242,3 +1245,75 @@ func perf_ablate() -> void:
 		await w(0.2)
 	main.delete_save(9)
 	get_tree().quit()
+
+
+## The sound mixer's rules (-- --autotest --audio): every cue the game names can
+## sound, a burst of one cue is heard once, and an important cue always finds a
+## voice while a trivial one gives way.
+func audio_test() -> void:
+	await w(1.5)
+	var fails := 0
+	var was_muted: bool = Sfx.muted
+	Sfx.muted = false
+	# 1. Every Sfx.play("...") in the scripts resolves to something. A cue may be
+	#    let off here while it waits for a recording; none is now.
+	var silent_ok: Array[String] = []
+	var re := RegEx.new()
+	re.compile("Sfx\\.play\\(\"([a-z0-9_]+)\"")
+	var ids := {}
+	for f in DirAccess.get_files_at("res://scripts"):
+		if not f.ends_with(".gd"):
+			continue
+		var src := FileAccess.get_file_as_string("res://scripts/" + f)
+		for m in re.search_all(src):
+			ids[m.get_string(1)] = f
+	# Kinds of blow reach Sfx.play through a variable, so take them from the table.
+	for id in Sfx.ALIAS:
+		if not ids.has(id):
+			ids[id] = "sfx.gd ALIAS"
+	for id in ids:
+		var r: String = Sfx.resolve(id)
+		if r == "" and not silent_ok.has(id):
+			fails += 1
+			print("AUDIO FAIL cue \"%s\" (in %s) has no sound" % [id, ids[id]])
+		elif r != id:
+			print("AUDIO      cue %-12s plays %s" % [id, r if r != "" else "(nothing yet)"])
+	print("AUDIO %d cues named in the scripts" % ids.size())
+	# 2. Thirty hits in one frame are one hit.
+	for i in 30:
+		Sfx.play("hit")
+	var n := 0
+	for i in Sfx.pool.size():
+		if Sfx.pool[i].playing and Sfx.voice_id[i] == Sfx.resolve("hit"):
+			n += 1
+	print("AUDIO %s a burst of 30 hits plays %d" % ["ok  " if n == 1 else "FAIL", n])
+	fails += int(n != 1)
+	# 3. With every voice busy on footsteps, a kill still sounds.
+	var long_stream = Sfx.tracks.values()[0] if Sfx.tracks.size() > 0 else null
+	if long_stream != null:
+		for i in Sfx.pool.size():
+			Sfx.pool[i].stream = long_stream
+			Sfx.pool[i].volume_db = -80.0
+			Sfx.pool[i].play()
+			Sfx.voice_id[i] = "step"
+			Sfx.voice_prio[i] = 0
+			Sfx.voice_t[i] = 0.0
+		await get_tree().process_frame
+		Sfx.play("kill")
+		var got := Sfx.voice_id.has(Sfx.resolve("kill"))
+		print("AUDIO %s a kill takes a footstep's voice" % ("ok  " if got else "FAIL"))
+		fails += int(not got)
+		# 4. With every voice busy on things that matter more, a hit gives way.
+		for i in Sfx.pool.size():
+			Sfx.voice_id[i] = "death"
+			Sfx.voice_prio[i] = 5
+		Sfx.last_start.clear()
+		Sfx.play("hit")
+		var stole := Sfx.voice_id.has(Sfx.resolve("hit"))
+		print("AUDIO %s a hit does not cut a death cry" % ("FAIL" if stole else "ok  "))
+		fails += int(stole)
+		for p in Sfx.pool:
+			p.stop()
+	Sfx.muted = was_muted
+	print("AUDIO %s" % ("PASS" if fails == 0 else "FAIL %d" % fails))
+	get_tree().quit(1 if fails > 0 else 0)
