@@ -308,7 +308,7 @@ func _burn_creatures() -> void:
 		match k:
 			"fire":
 				if e.burn_t <= 0.0:
-					e.hurt(heat * 0.5, Vector2.ZERO, Color(1.0, 0.55, 0.2))
+					e.hurt(heat * 0.5, Vector2.ZERO, Color(1.0, 0.55, 0.2), "burn")
 				e.burn_t = maxf(e.burn_t, 2.5)
 				e.burn_dps = maxf(e.burn_dps, heat)
 				if e.kind == "gloam" and not e.dead:

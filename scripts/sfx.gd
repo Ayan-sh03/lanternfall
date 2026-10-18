@@ -34,13 +34,46 @@ const MUSIC_FALLBACK := {"title": "vesper", "depth1": "vesper", "depth2": "vespe
 	"depth4": "deep", "depth5": "deep", "depth6": "deep", "forge": "deep", "boss": "warden", "keep": "vesper", "dawn": "dawn"}
 
 
+## A cue with no sound of its own borrows another's, so the game can name the
+## sound it means (a burn, a bolt striking home) whether or not it has a file.
+const ALIAS := {"hit_heavy": "hit", "crit": "hit_heavy", "hit_bolt": "hit", "burn": "cinder",
+	"zap_hit": "zap", "ward_hit": "ember", "ember_hit": "ember", "shatter": "clank",
+	"husk_lunge": "growl", "moth_bite": "lunge", "brute_roar": "roar", "wisp_fuse": "telegraph",
+	"chant": "", "hurt_voice": "", "parry": "clank", "deflect": "clank", "swing": "slash",
+	"swing_heavy": "slash3", "bolt_cast": "bolt"}
+## When every voice is busy, a cue may take the place of one that matters less.
+const PRIO := {"death": 5, "levelup": 5, "kill": 4, "boom": 4, "roar": 4, "sting": 4, "punch": 4,
+	"telegraph": 4, "brute_roar": 4, "wisp_fuse": 4, "hurt_voice": 4, "husk_lunge": 3, "moth_bite": 3,
+	"crit": 3, "hit_heavy": 3, "slash3": 3, "clank": 3, "parry": 3, "heart": 3, "shatter": 3,
+	"step": 0, "type": 0, "burn": 1, "ember_hit": 1, "ward_hit": 1, "zap_hit": 1, "cinder": 1,
+	"coins": 1, "pop": 1}
+## The shortest time in seconds between two starts of one cue. A blow that lands
+## on thirty foes at once is heard as one hit, not as thirty in a smear.
+const GAP := {"hit": 0.06, "hit_heavy": 0.06, "crit": 0.06, "hit_bolt": 0.06, "burn": 0.15,
+	"ember_hit": 0.1, "ward_hit": 0.12, "zap_hit": 0.08, "shatter": 0.08, "kill": 0.05, "step": 0.08,
+	"cinder": 0.05, "coins": 0.05, "slime": 0.15, "growl": 0.2, "husk_lunge": 0.15, "moth_bite": 0.15}
+const GAP_DEFAULT := 0.03
+## At most this many of one cue sound at once; past that the oldest is cut.
+const MAX_SAME := {"step": 2, "burn": 2, "ember_hit": 2, "ward_hit": 2, "zap_hit": 2, "type": 2}
+const MAX_SAME_DEFAULT := 3
+const VOICES := 28
+
+var voice_id: Array[String] = []
+var voice_prio := PackedInt32Array()
+var voice_t := PackedFloat64Array()
+var last_start := {}
+
+
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	rng.seed = 7
-	for i in 22:
+	for i in VOICES:
 		var p := AudioStreamPlayer.new()
 		add_child(p)
 		pool.append(p)
+		voice_id.append("")
+	voice_prio.resize(VOICES)
+	voice_t.resize(VOICES)
 	for i in 2:
 		var m := AudioStreamPlayer.new()
 		m.volume_db = -60.0
@@ -94,20 +127,65 @@ func _exit_tree() -> void:
 		sfx_thread.wait_to_finish()
 
 
+## The cue that will actually sound for id: itself, or what it borrows from.
+func resolve(id: String) -> String:
+	for i in 4:
+		if file_sounds.has(id) or sounds.has(id):
+			return id
+		id = ALIAS.get(id, "")
+		if id == "":
+			return ""
+	return ""
+
+
 func play(id: String, vol_db: float = 0.0, pitch_var: float = 0.07) -> void:
 	if muted:
 		return
+	var asked := id
+	id = resolve(id)
+	if id == "":
+		return
+	var now := Time.get_ticks_msec() / 1000.0
+	if now - float(last_start.get(id, -10.0)) < GAP.get(id, GAP_DEFAULT):
+		return
+	var prio: int = PRIO.get(asked, PRIO.get(id, 2))
+	# A free voice if there is one; else the least needed (the oldest if tied),
+	# as long as it matters no more than this cue does.
+	var free := -1
+	var same := 0
+	var oldest_same := -1
+	var victim := -1
+	for i in pool.size():
+		if not (pool[i] as AudioStreamPlayer).playing:
+			if free < 0:
+				free = i
+			continue
+		if voice_id[i] == id:
+			same += 1
+			if oldest_same < 0 or voice_t[i] < voice_t[oldest_same]:
+				oldest_same = i
+		if victim < 0 or voice_prio[i] < voice_prio[victim] \
+				or (voice_prio[i] == voice_prio[victim] and voice_t[i] < voice_t[victim]):
+			victim = i
+	var v := free
+	if same >= MAX_SAME.get(id, MAX_SAME_DEFAULT):
+		v = oldest_same
+	elif v < 0:
+		if victim < 0 or voice_prio[victim] > prio:
+			return
+		v = victim
 	var stream
 	if file_sounds.has(id):
 		var variants: Array = file_sounds[id]
 		stream = variants[randi() % variants.size()]
 		vol_db += FILE_VOL.get(id, -5.0)
-	elif sounds.has(id):
-		stream = sounds[id]
 	else:
-		return
-	var p: AudioStreamPlayer = pool[pool_i]
-	pool_i = (pool_i + 1) % pool.size()
+		stream = sounds[id]
+	last_start[id] = now
+	voice_id[v] = id
+	voice_prio[v] = prio
+	voice_t[v] = now
+	var p: AudioStreamPlayer = pool[v]
 	p.stream = stream
 	p.volume_db = vol_db
 	p.pitch_scale = 1.0 + randf_range(-pitch_var, pitch_var)

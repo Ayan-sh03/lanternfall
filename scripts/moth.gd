@@ -156,7 +156,7 @@ func _process(dt: float) -> void:
 				to = prey.center()
 				spd = 200.0
 				if (position - prey.center()).length() < 7.0:
-					prey.hurt(3.0 + 2.0 * lv, Vector2.ZERO, COL)
+					prey.hurt(3.0 + 2.0 * lv, Vector2.ZERO, COL, "ember_hit")
 					prey.slow_t = maxf(prey.slow_t, 0.6)
 					g.main.tally("flit_bites")
 					nip_cd = 1.6

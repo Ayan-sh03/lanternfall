@@ -277,7 +277,8 @@ func rouse() -> void:
 	base_mod = Color.WHITE
 
 
-func hurt(amount: float, kb: Vector2, col: Color = Color(1.0, 0.92, 0.65)) -> void:
+## snd names the kind of blow, so each sounds like what it is (see Sfx.ALIAS).
+func hurt(amount: float, kb: Vector2, col: Color = Color(1.0, 0.92, 0.65), snd: String = "hit") -> void:
 	if dead or state == "dormant":
 		return
 	hp -= amount
@@ -295,7 +296,7 @@ func hurt(amount: float, kb: Vector2, col: Color = Color(1.0, 0.92, 0.65)) -> vo
 	if hp <= 0.0:
 		die()
 	else:
-		Sfx.play("hit", -5.0)
+		Sfx.play(snd, -5.0)
 
 
 func die() -> void:
@@ -349,7 +350,7 @@ func tick(dt: float) -> void:
 					if o != self and not o.dead and o.burn_t <= 0.0 and (o.position - position).length() < 24.0:
 						o.burn_t = 2.5
 						o.burn_dps = burn_dps
-			hurt(burn_dps * 0.5, Vector2.ZERO, Color(1.0, 0.6, 0.2))
+			hurt(burn_dps * 0.5, Vector2.ZERO, Color(1.0, 0.6, 0.2), "burn")
 			if dead:
 				return
 	if stun > 0.0:
@@ -515,7 +516,7 @@ func _ai_husk(dt: float, to_p: Vector2, dist: float) -> void:
 				state = "lunge"
 				st = 0.2
 				dir = to_p.normalized()
-				Sfx.play("growl", -2.0)
+				Sfx.play("husk_lunge", -2.0, 0.12)
 		"lunge":
 			st -= dt
 			vel = dir * 200.0
@@ -538,6 +539,7 @@ func _ai_moth(dt: float, to_p: Vector2, dist: float) -> void:
 	else:
 		vel = _seek().rotated(sin(anim * 4.0 + seed_f) * 0.9) * speed
 		if dist < 10.0 and touch_cd <= 0.0:
+			Sfx.play("moth_bite", -4.0, 0.15)
 			g.hurt_player(dmg, position, 120.0, self)
 			touch_cd = 0.9
 			state = "back"
@@ -560,6 +562,7 @@ func _ai_cantor(dt: float, to_p: Vector2, dist: float) -> void:
 					state = "cast"
 					st = 0.55
 					Sfx.play("telegraph", -10.0)
+					Sfx.play("chant", -8.0, 0.1)
 					g.fx.ring(center(), 16.0, 3.0, 0.55, Color(1.0, 0.3, 0.75, 0.8))
 			else:
 				vel = _seek() * speed
@@ -587,7 +590,7 @@ func _ai_brute(dt: float, to_p: Vector2, dist: float) -> void:
 				state = "wind"
 				st = 0.7
 				dir = to_p.normalized()
-				Sfx.play("bell", -6.0)
+				Sfx.play("brute_roar", -4.0, 0.1)
 		"wind":
 			st -= dt
 			dir = dir.lerp(to_p.normalized(), dt * 3.0).normalized()
@@ -646,7 +649,7 @@ func _ai_wisp(dt: float, dist: float) -> void:
 			if dist < 24.0 and has_los:
 				state = "fuse"
 				st = 0.75
-				Sfx.play("telegraph", -6.0)
+				Sfx.play("wisp_fuse", -6.0, 0.05)
 				g.fx.ring(position, 34.0, 34.0, 0.75, Color(1.0, 0.3, 0.05, 0.3), true)
 		"fuse":
 			st -= dt
