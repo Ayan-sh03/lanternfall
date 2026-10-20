@@ -285,6 +285,10 @@ var god := false
 var bot_mv := Vector2.ZERO
 var bot_atk := false
 var bot_bolt := false
+## A balance run (balance.gd) hands each game its tally to count into, and a
+## policy for the bot's choices. Normal play leaves both unset.
+var metrics = null
+var bot_policy := Callable()
 
 
 ## restore: a save to resume from. prepared: starting fresh at a chosen depth,
@@ -1291,6 +1295,28 @@ func _bot_think() -> void:
 		cast_ward()
 
 
+## Counts something toward a balance run's statistics; does nothing in play.
+func note_metric(key: String, amount: float = 1.0) -> void:
+	if metrics != null:
+		metrics[key] = metrics.get(key, 0.0) + amount
+
+
+## Which of a choice's options the bot takes (the HUD's auto mode asks): the
+## first, unless a balance run set a policy. Offers and picks are counted by id.
+func bot_choose(options: Array) -> int:
+	var i := 0
+	if bot_policy.is_valid() and not options.is_empty():
+		i = clampi(int(bot_policy.call(options)), 0, options.size() - 1)
+	if metrics != null:
+		for k in options.size():
+			var id: String = str(options[k].get("id", "")) if options[k] is Dictionary else ""
+			if id != "":
+				note_metric("offer:" + id)
+				if k == i:
+					note_metric("pick:" + id)
+	return i
+
+
 # --- The lamp snuffed, the flask thrown, the echo -----------------------------------
 
 func toggle_snuff() -> void:
@@ -1376,6 +1402,7 @@ func throw_flask() -> void:
 			hud.float_text(ppos + Vector2(0, -26), "NO OIL", Color(0.8, 0.6, 0.4))
 		return
 	oil -= FLASK_COST
+	note_metric("oil_flask", FLASK_COST)
 	flask_cd = 0.6
 	var o := pcenter()
 	var want: Vector2
@@ -1825,6 +1852,7 @@ func do_bolt() -> void:
 	if snuffed:
 		relight()
 	echo_blows.append({"t": echo_clock, "k": "bolt", "a": aim, "heavy": false})
+	note_metric("oil_bolt", bolt_cost())
 	# Relighting may have taken the oil this bolt was counted against.
 	oil = maxf(0.0, oil - bolt_cost())
 	bolt_cd = 0.38
@@ -1882,9 +1910,13 @@ func hurt_player(amount: int, from: Vector2, kb: float = 170.0, src = null) -> b
 		amount += stats["frail"]
 	# No single blow takes Wren from more than one heart straight to nothing.
 	var spared: bool = amount >= hp and hp > 2
+	var hp_was := hp
 	hp -= amount
 	if spared:
 		hp = 1
+	if metrics != null:
+		note_metric("hp_lost", hp_was - maxi(hp, 0))
+		note_metric("hurt_by:" + (last_cause if last_cause != "" else "?"), hp_was - maxi(hp, 0))
 	invuln = 0.9
 	if hp > 0 and hp <= 2:
 		# The last heart: a longer breath before the next blow can land.
@@ -2107,6 +2139,8 @@ func on_wake(_e) -> void:
 
 func enemy_died(e) -> void:
 	kills += 1
+	if metrics != null:
+		note_metric("kill:" + e.kind)
 	main.tally("kills")
 	# Read the light once: what this kill pays depends on how dark it was.
 	var tier := light_tier()
@@ -3209,6 +3243,7 @@ func _boss_fell(e) -> void:
 # --- Powers ---------------------------------------------------------------------
 
 func grant_power(id: String) -> void:
+	note_metric("relic:" + id)
 	if id == "match":
 		spare_match = true
 		return
@@ -3231,6 +3266,7 @@ func _power_ready(id: String) -> bool:
 		pcd[id] = 0.3
 		return false
 	oil -= cost
+	note_metric("oil_power", cost)
 	pcd[id] = Story.POWERS[id]["cd"] * stats["cdr"]
 	return true
 

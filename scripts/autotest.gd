@@ -1674,6 +1674,13 @@ func run() -> void:
 		add_child(wt)
 		wt.run()
 		return
+	if OS.get_cmdline_user_args().has("--balance"):
+		var bal = load("res://scripts/balance.gd").new()
+		bal.main = main
+		bal.at = self
+		add_child(bal)
+		bal.run()
+		return
 	if OS.get_cmdline_user_args().has("--wildreel"):
 		var wr = load("res://scripts/wildreel.gd").new()
 		wr.main = main

@@ -81,6 +81,8 @@ var choice_cb := Callable()
 var choice_n := 0
 ## Extra height the plaques of the open choice hang to (see show_choice).
 var card_extra := 0.0
+## The options on show, so a bot can weigh them (see game.bot_choose).
+var choice_opts: Array = []
 var lines: Array = []
 var line_i := -1
 var type_lbl: Label = null
@@ -897,6 +899,7 @@ func show_choice(title: String, sub: String, opts: Array, cb: Callable, back: Ca
 	var vb := _modal("choice", Color(0.0, 0.0, 0.02, 0.82))
 	choice_cb = cb
 	choice_n = opts.size()
+	choice_opts = opts
 	var tl := _lbl(title, 50, C_EMBER, font_t, 8)
 	tl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	vb.add_child(tl)
@@ -1795,7 +1798,7 @@ func _process(dt: float) -> void:
 					typing = false
 					_advance()
 				"choice":
-					_choose(0)
+					_choose(game.bot_choose(choice_opts) if game != null else 0)
 
 	if pad != null:
 		pad.game = game

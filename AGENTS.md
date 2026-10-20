@@ -25,7 +25,7 @@ Lanternfall is a dark-fantasy pixel-art dungeon crawler in Godot 4.3 (GL Compati
 - `fx.gd`: particles, arcs and rings, drawn with `_draw`. `surfaces.gd`: oil, fire, webs, water, slick. `echo.gd`, `moth.gd` (Flit), `nemesis.gd`: features.
 - `view3d.gd`: optional 3D renderer that watches the 2D state and re-draws it; game rules never run in 3D.
 - `sfx.gd`: autoload `Sfx`, see Audio. `art.gd`: static class holding every texture.
-- Tours and tests: `autotest.gd` (harness), `wildtest.gd`, `showcase.gd`, `showreel.gd`, `wildreel.gd`.
+- Tours and tests: `autotest.gd` (harness), `wildtest.gd`, `balance.gd` (bot balance runs), `showcase.gd`, `showreel.gd`, `wildreel.gd`.
 
 ## Rendering pipeline (world_view.gd)
 
@@ -57,6 +57,8 @@ godot --path . -- --autotest --<mode> [--shotdir=<dir>]
 When several checkouts run tests at once, add `--savetag=<name>` so their save files (slot 9) stay apart.
 
 Modes (dispatched in `run()` near line 990): `--quick`, `--mechanics` (combat rules, parry etc.), `--progress` (profile, saves, upgrades), `--wild` (wildtest.gd, random play), `--ui` and `--anim` and `--sheet` (screenshots), `--touch`, `--icons` (rewrites `windows/icon.png`), `--view3d` (checks the 3D mouse aim projects back to the cursor, view switching, saves shots), `--perf`, `--perfab`, `--audio` (every cue named in the scripts resolves to a sound; voice limits hold). With no mode it plays every floor with a bot and saves screenshots to `--shotdir`.
+
+Balance statistics (`scripts/balance.gd`, not in CI: a full run takes about a minute of wall time): `godot --headless --path . --fixed-fps 60 -- --autotest --balance --runs=5 --savetag=stats [--depth=N] [--policy=random|first] [--skill=0..1] [--seed=N] [--lives=5] [--town=all] [--shotdir=<dir>]`. A bot plays whole descents from depth 1, fighting for real (`--skill=1`, the default, reacts instantly and parries every hex; 0.5 is slower, aims worse and misses parries); `--fixed-fps 60` lets it run as fast as the CPU allows (about 10x) in the same 60 fps steps as play. It prints `BAL` lines (win rate, run length, embers per run, per-depth time, hp lost and deaths, deadliest foes, oil spent, each kindling's pick rate and win rate when picked) and writes `balance.json`, `balance_runs.csv` and `balance_kindlings.csv` to `--shotdir` (or `user://balance/`). The game side is small: `game.note_metric(key, amount)` counts into `game.metrics` (null in play), and the HUD's auto mode asks `game.bot_choose(options)` which plaque to take. Count new things with `note_metric`; give new choices an `id` so they are tallied.
 
 - Results are printed lines tagged with the area (`MECH`, `VIEW3D`, `PERF`...); read them for `ok` / `FAIL` / `PASS`. `--view3d` ends with `VIEW3D PASS` or `VIEW3D FAIL n`.
 - Harmless noise at shutdown: "Unreferenced static string", "Pages in use exist at exit", "PagedAllocator".
