@@ -52,6 +52,8 @@ There is no unit-test framework; `scripts/autotest.gd` is the harness. Run from 
 godot --path . -- --autotest --<mode> [--shotdir=<dir>]
 ```
 
+When several checkouts run tests at once, add `--savetag=<name>` so their save files (slot 9) stay apart.
+
 Modes (dispatched in `run()` near line 990): `--quick`, `--mechanics` (combat rules, parry etc.), `--progress` (profile, saves, upgrades), `--wild` (wildtest.gd, random play), `--ui` and `--anim` and `--sheet` (screenshots), `--touch`, `--icons` (rewrites `windows/icon.png`), `--view3d` (checks the 3D mouse aim projects back to the cursor, view switching, saves shots), `--perf`, `--perfab`, `--audio` (every cue named in the scripts resolves to a sound; voice limits hold). With no mode it plays every floor with a bot and saves screenshots to `--shotdir`.
 
 - Results are printed lines tagged with the area (`MECH`, `VIEW3D`, `PERF`...); read them for `ok` / `FAIL` / `PASS`. `--view3d` ends with `VIEW3D PASS` or `VIEW3D FAIL n`.
