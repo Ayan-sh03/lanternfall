@@ -28,15 +28,22 @@ const DEPTHS := [
 ## The practice hall used by the showcase recording.
 const GALLERY := {"sub": "", "name": "", "theme": "choir", "music": "depth2", "line": ""}
 
-## Maren left her tools behind her on the way down. One relic per depth.
+## Maren left her tools behind her on the way down. Each relic stand offers
+## the ones Wren does not carry yet, up to three, and she takes one; each
+## answers a different trouble ("role"), and what she passes over waits on a
+## deeper stand. "card" is the short line on its offer card.
 const RELICS := [
-	{"power": "nova", "key": "Q", "name": "Flare Salt",
+	{"power": "nova", "key": "Q", "name": "Flare Salt", "icon": "i_burst", "role": "For when they crowd you",
+		"card": "A ring of fire bursts from the lamp, hurling everything near you back.",
 		"text": "Maren's flare-salt, in its waxed pouch. A pinch on the wick and the lamp roars outward.\n\n\"For when they crowd you. Don't waste it on one.\""},
-	{"power": "spark", "key": "R", "name": "Storm-Glass",
+	{"power": "spark", "key": "R", "name": "Storm-Glass", "icon": "i_fork", "role": "For the pack, at a distance",
+		"card": "Lightning leaps to the nearest foe and on through the pack, stunning each.",
 		"text": "A sealed glass with a thread of caught lightning turning inside it. It leaps to whatever is nearest, and then to whatever is nearest that.\n\n\"It doesn't much care who. Aim it first.\""},
-	{"power": "ward", "key": "F", "name": "Hearth-Stone",
+	{"power": "ward", "key": "F", "name": "Hearth-Stone", "icon": "i_lamp", "role": "For holding your ground",
+		"card": "A circle of hearth-light that slows and scorches foes, and fills your flask.",
 		"text": "A flat grey stone, still warm. Set down, it remembers being a fireplace: the dark slows at its edge, and what crosses it burns.\n\n\"Stand in the light when you can. That's the whole trade.\""},
-	{"power": "match", "key": "", "name": "The Spare Match",
+	{"power": "match", "key": "", "name": "The Spare Match", "icon": "i_flame", "role": "For the blow that ends you",
+		"card": "Once on each depth, a blow that would put you out will not.",
 		"text": "A single long match in a brass case, with her initials scratched into the lid.\n\n\"Lampwrights are just the ones who carry a spare.\"\n\nOnce on each depth, a blow that would put you out will not."},
 ]
 
@@ -204,32 +211,74 @@ const DEATH_LINES := [
 	"\"The dark isn't cruel, Wren. It's only patient.\"  - Maren",
 ]
 
+## The three faces of the lamp. Every kindling belongs to one, and the offers
+## lean toward the faces Wren has already taken from, so a descent finds its
+## shape by the second or third pick.
+const ASPECTS := {
+	"ember": {"name": "Oil & Ember", "col": Color(1.0, 0.55, 0.22), "icon": "i_flame"},
+	"hearth": {"name": "Wick & Hearth", "col": Color(1.0, 0.9, 0.58), "icon": "i_lamp"},
+	"shade": {"name": "Shade & Echo", "col": Color(0.55, 0.9, 0.95), "icon": "i_eye"},
+}
+
+## "aspect" is the face of the lamp it belongs to (ASPECTS). "max" is how many
+## times a kindling stacks before it stops being offered; "unique" ones come
+## once. The caps keep the strongest stacks in sight of each other:
+##   Keen Edge 3 (x1.95 strike damage), Long Hook 2 (x1.44 reach),
+##   Lamplighter's Stride 3 (x1.40 speed), Stubborn Heart 3 (+3 hearts),
+##   Deep Flask 3 (+105 oil), Kindled Bolt 3 (x2.74 bolt damage),
+##   Forked Flame 2 (5 bolts), Quick Step 2 (dash back in 56% of the time),
+##   Bright Wick 2, Gleaner 2 (+12% hearts), Wick-Thief 3, Lance of Light 3,
+##   Ember Motes 2 (4 motes, 6 with Conflux), Crescent Wave 2, Afterburn 3,
+##   Cinderburst 3, Lodestone Wick 2, Keen Eye 3 (45%), Second Self 2,
+##   Maren's Notes 3 (x2.20 power).
+## A "bargain" has a real cost, written in "cost" and shown on its card; each
+## is unique. Their numbers are in game.gd's apply_boon.
 const BOONS := [
-	{"id": "edge", "name": "Keen Edge", "desc": "Your lamp-hook bites deeper.\n+25% strike damage.", "col": Color(1.0, 0.85, 0.55)},
-	{"id": "reach", "name": "Long Hook", "desc": "A longer haft, a wider sweep.\n+20% strike reach.", "col": Color(1.0, 0.85, 0.55)},
-	{"id": "swift", "name": "Lamplighter's Stride", "desc": "A hundred streets before dusk.\n+12% movement speed.", "col": Color(0.55, 0.9, 0.95)},
-	{"id": "heart", "name": "Stubborn Heart", "desc": "+1 heart, and one heart mended.", "col": Color(0.95, 0.3, 0.4)},
-	{"id": "flask", "name": "Deep Flask", "desc": "+35 oil capacity.\nYour flask is refilled.", "col": Color(1.0, 0.65, 0.15)},
-	{"id": "kindle", "name": "Kindled Bolt", "desc": "Ember bolts burn hotter.\n+40% bolt damage.", "col": Color(1.0, 0.55, 0.15)},
-	{"id": "twin", "name": "Forked Flame", "desc": "Each cast throws two more ember bolts in a fan.", "col": Color(1.0, 0.55, 0.15)},
-	{"id": "step", "name": "Quick Step", "desc": "Your dash recovers 25% faster.", "col": Color(0.55, 0.9, 0.95)},
-	{"id": "wick", "name": "Bright Wick", "desc": "Your lamp burns wider, and oil seeps back faster.", "col": Color(1.0, 0.9, 0.6)},
-	{"id": "glean", "name": "Gleaner", "desc": "The fallen leave hearts behind more often.", "col": Color(0.95, 0.3, 0.4)},
-	{"id": "sear", "name": "Searing Dash", "desc": "Dashing through a foe burns it.", "col": Color(0.55, 0.9, 0.95), "unique": true},
-	{"id": "siphon", "name": "Wick-Thief", "desc": "Every strike that lands returns a little oil.", "col": Color(1.0, 0.65, 0.15)},
-	{"id": "thorn", "name": "Ember Cloak", "desc": "When you are struck, you flare and scorch everything near you.", "col": Color(1.0, 0.45, 0.2), "unique": true},
-	{"id": "pierce", "name": "Lance of Light", "desc": "Ember bolts pass through one more foe.", "col": Color(1.0, 0.55, 0.15)},
-	{"id": "orbit", "name": "Ember Motes", "desc": "Two motes of fire circle you, searing whatever they touch.", "col": Color(1.0, 0.7, 0.25)},
-	{"id": "wave", "name": "Crescent Wave", "desc": "Your heavy third strike throws a blade of light that cuts through everything in its path.", "col": Color(1.0, 0.9, 0.6)},
-	{"id": "burn", "name": "Afterburn", "desc": "Ember bolts set foes alight. They keep burning.", "col": Color(1.0, 0.45, 0.15)},
-	{"id": "shatter", "name": "Cinderburst", "desc": "Slain foes burst, scorching everything beside them.", "col": Color(1.0, 0.45, 0.15)},
-	{"id": "blink", "name": "Double Step", "desc": "You can dash twice before needing to recover.", "col": Color(0.55, 0.9, 0.95), "unique": true},
-	{"id": "trail", "name": "Cinder Trail", "desc": "Your dash leaves a line of fire behind it.", "col": Color(1.0, 0.55, 0.2), "unique": true},
-	{"id": "magnet", "name": "Lodestone Wick", "desc": "Cinders fly to you from much farther off, and the fallen leave more of them.", "col": Color(1.0, 0.8, 0.4)},
-	{"id": "crit", "name": "Keen Eye", "desc": "+15% chance for a strike to land twice as hard.", "col": Color(1.0, 0.85, 0.55)},
-	{"id": "echo", "name": "Second Self", "desc": "Your echo strikes harder and comes back sooner after a dash.", "col": Color(0.55, 0.9, 0.95)},
-	{"id": "focus", "name": "Maren's Notes", "desc": "Flare Nova, Storm Spark and Hearth Ward hit 30% harder and return sooner.", "col": Color(0.7, 0.85, 1.0)},
+	{"id": "edge", "name": "Keen Edge", "desc": "Your lamp-hook bites deeper.\n+25% strike damage.", "col": Color(1.0, 0.85, 0.55), "aspect": "shade", "max": 3},
+	{"id": "reach", "name": "Long Hook", "desc": "A longer haft, a wider sweep.\n+20% strike reach.", "col": Color(1.0, 0.85, 0.55), "aspect": "hearth", "max": 2},
+	{"id": "swift", "name": "Lamplighter's Stride", "desc": "A hundred streets before dusk.\n+12% movement speed.", "col": Color(0.55, 0.9, 0.95), "aspect": "shade", "max": 3},
+	{"id": "heart", "name": "Stubborn Heart", "desc": "+1 heart, and one heart mended.", "col": Color(0.95, 0.3, 0.4), "aspect": "hearth", "max": 3},
+	{"id": "flask", "name": "Deep Flask", "desc": "+35 oil capacity.\nYour flask is refilled.", "col": Color(1.0, 0.65, 0.15), "aspect": "ember", "max": 3},
+	{"id": "kindle", "name": "Kindled Bolt", "desc": "Ember bolts burn hotter.\n+40% bolt damage.", "col": Color(1.0, 0.55, 0.15), "aspect": "ember", "max": 3},
+	{"id": "twin", "name": "Forked Flame", "desc": "Each cast throws two more ember bolts in a fan.", "col": Color(1.0, 0.55, 0.15), "aspect": "ember", "max": 2},
+	{"id": "step", "name": "Quick Step", "desc": "Your dash recovers 25% faster.", "col": Color(0.55, 0.9, 0.95), "aspect": "shade", "max": 2},
+	{"id": "wick", "name": "Bright Wick", "desc": "Your lamp burns wider, and oil seeps back faster.", "col": Color(1.0, 0.9, 0.6), "aspect": "hearth", "max": 2},
+	{"id": "glean", "name": "Gleaner", "desc": "The fallen leave hearts behind more often.", "col": Color(0.95, 0.3, 0.4), "aspect": "hearth", "max": 2},
+	{"id": "sear", "name": "Searing Dash", "desc": "Dashing through a foe burns it.", "col": Color(0.55, 0.9, 0.95), "unique": true, "aspect": "shade"},
+	{"id": "siphon", "name": "Wick-Thief", "desc": "Every strike that lands returns a little oil.", "col": Color(1.0, 0.65, 0.15), "aspect": "shade", "max": 3},
+	{"id": "thorn", "name": "Ember Cloak", "desc": "When you are struck, you flare and scorch everything near you.", "col": Color(1.0, 0.45, 0.2), "unique": true, "aspect": "ember"},
+	{"id": "pierce", "name": "Lance of Light", "desc": "Ember bolts pass through one more foe.", "col": Color(1.0, 0.55, 0.15), "aspect": "hearth", "max": 3},
+	{"id": "orbit", "name": "Ember Motes", "desc": "Two motes of fire circle you, searing whatever they touch.", "col": Color(1.0, 0.7, 0.25), "aspect": "ember", "max": 2},
+	{"id": "wave", "name": "Crescent Wave", "desc": "Your heavy third strike throws a blade of light that cuts through everything in its path.", "col": Color(1.0, 0.9, 0.6), "aspect": "hearth", "max": 2},
+	{"id": "burn", "name": "Afterburn", "desc": "Ember bolts set foes alight. They keep burning.", "col": Color(1.0, 0.45, 0.15), "aspect": "ember", "max": 3},
+	{"id": "shatter", "name": "Cinderburst", "desc": "Slain foes burst, scorching everything beside them.", "col": Color(1.0, 0.45, 0.15), "aspect": "ember", "max": 3},
+	{"id": "blink", "name": "Double Step", "desc": "You can dash twice before needing to recover.", "col": Color(0.55, 0.9, 0.95), "unique": true, "aspect": "shade"},
+	{"id": "trail", "name": "Cinder Trail", "desc": "Your dash leaves a line of fire behind it.", "col": Color(1.0, 0.55, 0.2), "unique": true, "aspect": "ember"},
+	{"id": "magnet", "name": "Lodestone Wick", "desc": "Cinders fly to you from much farther off, and the fallen leave more of them.", "col": Color(1.0, 0.8, 0.4), "aspect": "hearth", "max": 2},
+	{"id": "crit", "name": "Keen Eye", "desc": "+15% chance for a strike to land twice as hard.", "col": Color(1.0, 0.85, 0.55), "aspect": "shade", "max": 3},
+	{"id": "echo", "name": "Second Self", "desc": "Your echo strikes harder and comes back sooner after a dash.", "col": Color(0.55, 0.9, 0.95), "aspect": "shade", "max": 2},
+	{"id": "focus", "name": "Maren's Notes", "desc": "Flare Nova, Storm Spark and Hearth Ward hit 30% harder and return sooner.", "col": Color(0.7, 0.85, 1.0), "aspect": "hearth", "max": 3},
+	# Bargains: each gives more than a kindling should, and takes something for it.
+	{"id": "burnwick", "name": "Burn the Wick", "desc": "Trim nothing. Let it roar.\n+60% bolt damage.",
+		"cost": "Oil seeps back into the flask half as fast.", "col": Color(1.0, 0.5, 0.15), "aspect": "ember",
+		"bargain": true, "unique": true, "icon": "i_flame"},
+	{"id": "pact", "name": "Pact of Embers", "desc": "Something below keeps count.\nFoes leave half again in embers and cinders.",
+		"cost": "Gloams come while the flask is a third full.", "col": Color(1.0, 0.6, 0.3), "aspect": "ember",
+		"bargain": true, "unique": true, "icon": "i_magnet"},
+	{"id": "lens", "name": "Cracked Lens", "desc": "The flaw throws the light wild.\nNova, Spark and Ward hit 50% harder.",
+		"cost": "Each costs 40% more oil.", "col": Color(0.75, 0.88, 1.0), "aspect": "hearth",
+		"bargain": true, "unique": true, "icon": "i_star"},
+	{"id": "leaden", "name": "Leaden Hook", "desc": "Lead in the haft. It lands like a bell.\n+45% strike damage.",
+		"cost": "15% slower on your feet.", "col": Color(1.0, 0.85, 0.55), "aspect": "hearth",
+		"bargain": true, "unique": true, "icon": "i_hook"},
+	{"id": "hollow", "name": "Hollow Heart", "desc": "A heart, for the dark's own eyes.\n+25% chance to strike twice as hard.",
+		"cost": "One heart, gone for this descent.", "col": Color(0.95, 0.3, 0.4), "aspect": "shade",
+		"bargain": true, "unique": true, "icon": "heart2"},
+	{"id": "moth_cloak", "name": "Moth-Eaten Cloak", "desc": "More hole than cloth.\nYour dash carries half again as far.",
+		"cost": "Blows from behind land half a heart harder.", "col": Color(0.55, 0.9, 0.95), "aspect": "shade",
+		"bargain": true, "unique": true, "icon": "i_cloak"},
 ]
+const BARGAIN_COL := Color(1.0, 0.35, 0.3)
 
 const ROMAN := ["I", "II", "III", "IV", "V", "VI", "VII"]
 

@@ -79,6 +79,8 @@ var modal_root: Control = null
 var modal_cb := Callable()
 var choice_cb := Callable()
 var choice_n := 0
+## Extra height the plaques of the open choice hang to (see show_choice).
+var card_extra := 0.0
 var lines: Array = []
 var line_i := -1
 var type_lbl: Label = null
@@ -907,6 +909,17 @@ func show_choice(title: String, sub: String, opts: Array, cb: Callable, back: Ca
 	row.add_theme_constant_override("separation", 22)
 	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	vb.add_child(row)
+	# Every plaque in the row hangs to the same length: room for a bargain's
+	# price, a pairing, or a line under the name, if any card has one.
+	# Lines are guessed from length: about 30 letters fit across a plaque.
+	card_extra = 0.0
+	for o in opts:
+		var extra := 0.0
+		for k in ["cost", "hint", "held", "tag"]:
+			if o.has(k):
+				var n := String(o[k]).length() + (10 if k == "cost" else 0)
+				extra += 28.0 * ceilf(n / 30.0)
+		card_extra = maxf(card_extra, extra)
 	for i in opts.size():
 		row.add_child(_plaque(opts[i], i))
 	if back.is_valid():
@@ -923,8 +936,10 @@ func _plaque(o: Dictionary, i: int) -> Control:
 	var col: Color = o.get("col", C_EMBER)
 	# Four plaques (the chapel lamp) hang a little narrower to fit the row.
 	var w := 300.0 if choice_n <= 3 else 268.0
-	var h := 396.0
+	var h := 396.0 + card_extra
 	var hang := 42.0
+	# A kindling's face of the lamp, on a tag hung between the chains.
+	var aspect: Dictionary = Story.ASPECTS.get(o.get("aspect", ""), {})
 	# The holder keeps its place in the row; the card inside is free to move.
 	var holder := Control.new()
 	holder.custom_minimum_size = Vector2(w, h)
@@ -933,12 +948,32 @@ func _plaque(o: Dictionary, i: int) -> Control:
 	card.size = Vector2(w, h)
 	card.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	holder.add_child(card)
-	for cx in [54.0, w - 54.0 - 24.0]:
+	# With a tag to hang between them, the chains move out toward the corners.
+	var ci := 54.0 if aspect.is_empty() else 16.0
+	for cx in [ci, w - ci - 24.0]:
 		var chain := TextureRect.new()
 		chain.texture = Art.tex["ui_chain"]
 		chain.position = Vector2(cx, -6)
 		chain.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		card.add_child(chain)
+	if not aspect.is_empty():
+		var acol: Color = aspect["col"]
+		var tag := HBoxContainer.new()
+		tag.alignment = BoxContainer.ALIGNMENT_CENTER
+		tag.add_theme_constant_override("separation", 6)
+		tag.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		tag.position = Vector2(0, 2)
+		tag.size = Vector2(w, 34)
+		var glyph := TextureRect.new()
+		glyph.texture = Art.tex[aspect["icon"]]
+		glyph.custom_minimum_size = Vector2(26, 26)
+		glyph.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		glyph.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		glyph.modulate = acol
+		glyph.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		tag.add_child(glyph)
+		tag.add_child(_lbl((aspect["name"] as String).to_upper(), 20, acol, font, 6))
+		card.add_child(tag)
 
 	var b := Button.new()
 	b.position = Vector2(0, hang)
@@ -948,6 +983,9 @@ func _plaque(o: Dictionary, i: int) -> Control:
 	b.add_theme_stylebox_override("pressed", _frame_sb("ui_card_hot", 26))
 	b.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
 	b.pressed.connect(_choose.bind(i))
+	if o.has("cost"):
+		# A bargain's stone is stained, so it reads as one before a word is read.
+		b.self_modulate = Color(1.0, 0.72, 0.68)
 	card.add_child(b)
 
 	var mc := MarginContainer.new()
@@ -984,9 +1022,13 @@ func _plaque(o: Dictionary, i: int) -> Control:
 	cv.add_child(nc)
 
 	cv.add_child(_wrapped(o["name"], 30, col.lightened(0.3), 240.0, font_t))
+	if o.has("tag"):
+		# What a relic is for, or that a kindling is two made one.
+		cv.add_child(_wrapped(o["tag"], 20, col.darkened(0.15), 240.0, font_i))
 	var rule := TextureRect.new()
 	rule.texture = Art.tex["ui_rule"]
-	rule.modulate = Color(col.r, col.g, col.b, 0.9)
+	var rc: Color = aspect.get("col", col)
+	rule.modulate = Color(rc.r, rc.g, rc.b, 0.9)
 	rule.stretch_mode = TextureRect.STRETCH_KEEP_CENTERED
 	rule.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	cv.add_child(rule)
@@ -994,6 +1036,14 @@ func _plaque(o: Dictionary, i: int) -> Control:
 	desc.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	desc.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	cv.add_child(desc)
+	if o.has("cost"):
+		# A bargain says its price in red, under what it gives.
+		cv.add_child(_wrapped("BARGAIN:  " + o["cost"], 20, Story.BARGAIN_COL, 240.0))
+	if o.has("hint"):
+		var hc: Color = Story.DUO_COL.lightened(0.25) if o.get("pairs", false) else Story.DUO_COL.darkened(0.2)
+		cv.add_child(_wrapped(o["hint"], 20, hc, 240.0))
+	elif o.has("held"):
+		cv.add_child(_wrapped("Held:  " + o["held"], 20, C_DIM, 240.0))
 
 	var cap := TextureRect.new()
 	cap.texture = Art.tex["ui_key"]
@@ -1907,7 +1957,7 @@ func _draw_bar(c: Control, vs: Vector2) -> void:
 			_:
 				owned = game.powers[id]
 				cdk = clampf(game.pcd[id] / (Story.POWERS[id]["cd"] * game.stats["cdr"]), 0.0, 1.0)
-				can_pay = game.oil >= Story.POWERS[id]["cost"]
+				can_pay = game.oil >= game.power_cost(id)
 		var ready := owned and can_pay and cdk <= 0.0
 		c.draw_rect(r, Color(0.05, 0.04, 0.07, 0.82))
 		if owned:
