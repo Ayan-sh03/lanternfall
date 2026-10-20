@@ -185,6 +185,22 @@ var pix_cache := {}
 const GLOAM_LOW := 0.2
 const GLOAM_SAFE := 0.4
 var gloam_t := 0.0
+## The light as a risk dial, after Darkest Dungeon's torch: the lower the lamp
+## burns, the more the dark gives up, and the harder it bites. Tiers run 0 Bright,
+## 1 Dim, 2 Shadowy, 3 Dark (see light_tier). Dark begins where the gloams do;
+## Shadowy is the band where shades already out linger but no new ones come.
+const LIGHT_DIM_AT := 0.65
+const LIGHT_DARK := 3
+## A hooded lamp counts as Dark only once the dark has settled round her, the
+## same grace the gloams give, so flicking the hood over a chest buys nothing.
+const SNUFF_SETTLE := 3.0
+## What each tier pays: drop chances and amounts, the cinders a kill leaves
+## (a little more experience), and how long a foe that wakes on her rushes.
+const LOOT_BY_TIER := [1.0, 1.25, 1.6, 2.0]
+const XP_BY_TIER := [1.0, 1.05, 1.15, 1.3]
+const AMBUSH_BY_TIER := [0.0, 0.0, 0.8, 1.6]
+## Oil spent to bring a lamp back after it has been properly dark.
+const RELIGHT_COST := 10.0
 ## What last struck Wren (a key of Story.CAUSES), for the death screen.
 var last_cause := ""
 var riposte_t := 0.0
@@ -1253,6 +1269,11 @@ func relight() -> void:
 		return
 	snuffed = false
 	_update_fov()
+	# A wick left dark has to catch again, and a new flame drinks oil. This is
+	# the price on hooding the lamp for the dark's loot and uncovering it for the
+	# next fight; a slip of the key (under half a second) costs nothing.
+	if snuff_t >= 0.5:
+		oil = maxf(0.0, oil - RELIGHT_COST)
 	if snuff_t >= 0.5 and flare_cd <= 0.0:
 		_flare()
 	else:
@@ -1745,7 +1766,8 @@ func do_bolt() -> void:
 	if snuffed:
 		relight()
 	echo_blows.append({"t": echo_clock, "k": "bolt", "a": aim, "heavy": false})
-	oil -= bolt_cost()
+	# Relighting may have taken the oil this bolt was counted against.
+	oil = maxf(0.0, oil - bolt_cost())
 	bolt_cd = 0.38
 	bolt_buf = 0.0
 	pose = "point"
@@ -1895,8 +1917,11 @@ func on_wake(_e) -> void:
 func enemy_died(e) -> void:
 	kills += 1
 	main.tally("kills")
+	# Read the light once: what this kill pays depends on how dark it was.
+	var tier := light_tier()
+	var loot: float = LOOT_BY_TIER[tier]
 	if e.xp > 0:
-		main.bank(e.xp)
+		main.bank(roundi(e.xp * loot))
 	hitstop = maxf(hitstop, 0.05)
 	add_shake(2.5)
 	Sfx.play("kill", -4.0)
@@ -1920,11 +1945,11 @@ func enemy_died(e) -> void:
 	if e.spawn_idx >= 0:
 		dead_spawns.append(e.spawn_idx)
 	if e.xp > 0:
-		drop("cinder", e.center(), int(ceil(e.xp * stats["xp_mult"])))
+		drop("cinder", e.center(), int(ceil(e.xp * stats["xp_mult"] * XP_BY_TIER[tier])))
 		var pity := 0.1 if hp <= 2 else 0.0
-		if rng.randf() < stats["heart_drop"] + pity:
+		if rng.randf() < (stats["heart_drop"] + pity) * loot:
 			drop("heart", e.position)
-		elif rng.randf() < 0.1:
+		elif rng.randf() < 0.1 * loot:
 			drop("oil", e.position)
 	if e.kind == "slime":
 		for k in 2:
@@ -2054,9 +2079,36 @@ func _reflect(s: Dictionary) -> void:
 	main.tally("reflects")
 
 
+## How dark Wren walks, from 0 Bright to 3 Dark (LIGHT_DARK). The one place the
+## tier is worked out: loot, ambushes, the gloams' bark and the HUD all ask here.
+func light_tier() -> int:
+	if snuffed and snuff_t >= SNUFF_SETTLE:
+		return LIGHT_DARK
+	var k := oil / maxf(max_oil, 1.0)
+	if k <= GLOAM_LOW:
+		return LIGHT_DARK
+	if k <= GLOAM_SAFE:
+		return 2
+	if k <= LIGHT_DIM_AT:
+		return 1
+	return 0
+
+
+## What the dark pays right now, as a multiplier on drops (1.0 to 2.0).
+func loot_mult() -> float:
+	return LOOT_BY_TIER[light_tier()]
+
+
+## How long a foe that notices Wren now rushes her (0 in good light).
+func ambush_time() -> float:
+	return AMBUSH_BY_TIER[light_tier()]
+
+
 func _update_gloam(dt: float) -> void:
 	if depth <= 0 or dead or god:
 		return
+	if light_tier() == LIGHT_DARK:
+		_say_once("dark_tier", Story.LIGHT_DARK_LINE)
 	var k := oil / maxf(max_oil, 1.0)
 	var shades: Array = []
 	for e in enemies:
@@ -2065,7 +2117,7 @@ func _update_gloam(dt: float) -> void:
 	# Snuffed by choice, the dark comes for her whatever the flask holds;
 	# a few seconds' grace first, then faster the longer she hides.
 	if snuffed:
-		if snuff_t < 3.0:
+		if snuff_t < SNUFF_SETTLE:
 			return
 		gloam_t -= dt * (1.0 + minf(snuff_t / 8.0, 1.5))
 		if gloam_t > 0.0 or shades.size() >= 3:
@@ -2399,11 +2451,13 @@ func _break_urn(p: Dictionary) -> void:
 	var pos: Vector2 = p["pos"]
 	Sfx.play("urn", -4.0, 0.15)
 	fx.spark(pos + Vector2(0, -4), Color(0.8, 0.55, 0.35), 10, 70.0, 0.4, 2.0, 160.0)
-	drop("cinder", pos, rng.randi_range(1, 3))
+	# Broken in the dark, an urn gives up more (loot_mult, up to twice).
+	var loot := loot_mult()
+	drop("cinder", pos, roundi(rng.randi_range(1, 3) * loot))
 	var roll := rng.randf()
-	if roll < 0.1:
+	if roll < 0.1 * loot:
 		drop("heart", pos)
-	elif roll < 0.3:
+	elif roll < 0.3 * loot:
 		drop("oil", pos)
 
 
@@ -2476,17 +2530,23 @@ func interact() -> void:
 			Sfx.play("coins")
 			Sfx.play("jingle", -8.0)
 			fx.spark(pos + Vector2(0, -4), Color(1.0, 0.85, 0.4), 16, 70.0, 0.6, 2.0)
-			drop("cinder", pos + Vector2(0, 4), rng.randi_range(8, 13))
-			if rng.randf() < 0.5:
+			# Opened in the dark, a chest gives up more: at Dark, a heart and a
+			# flask for certain and twice the embers.
+			var loot := loot_mult()
+			if loot > 1.0:
+				hud.float_text(pos + Vector2(0, -16), "+%d%% in the dark" % roundi((loot - 1.0) * 100.0), Color(0.75, 0.65, 1.0))
+			drop("cinder", pos + Vector2(0, 4), roundi(rng.randi_range(8, 13) * loot))
+			if rng.randf() < 0.5 * loot:
 				drop("heart", pos + Vector2(0, 4))
-			if rng.randf() < 0.6:
+			if rng.randf() < 0.6 * loot:
 				drop("oil", pos + Vector2(0, 4))
 			if p.get("secret", false):
 				# A hollow-wall hoard: a heart for certain, and embers for the town.
 				drop("heart", pos + Vector2(4, 4))
 				drop("cinder", pos + Vector2(0, 4), 10)
-				main.bank(25)
-				hud.say("A hoard behind the wall. (+25 embers)", 3.5, hud.C_EMBER)
+				var hoard := roundi(25 * loot)
+				main.bank(hoard)
+				hud.say("A hoard behind the wall. (+%d embers)" % hoard, 3.5, hud.C_EMBER)
 		"lamp":
 			if main.has_lamp("maren"):
 				hp = max_hp
