@@ -164,7 +164,12 @@ func _process(_dt: float) -> void:
 
 # --- Save files -----------------------------------------------------------------
 
+## `--savetag=<name>` keeps a test run's saves apart from another run's, so
+## checks can run side by side in several checkouts without sharing slot 9.
 func _slot_path(i: int) -> String:
+	for a in OS.get_cmdline_user_args():
+		if a.begins_with("--savetag="):
+			return "user://save_%s_%d.json" % [a.get_slice("=", 1).validate_filename(), i]
 	return "user://save_%d.json" % i
 
 
