@@ -256,6 +256,14 @@ const TOWN := [
 ]
 
 
+# --- The light dial ---------------------------------------------------------------
+
+## The lamp's light tiers as the HUD names them (Game.light_tier: 0 to 3).
+const LIGHT_TIERS := ["Bright", "Dim", "Shadowy", "Dark"]
+## Wren, the first time on a descent her light falls to Dark.
+const LIGHT_DARK_LINE := "This dark gives up what the light walks past. It'll want something back."
+
+
 # --- Deeds ---------------------------------------------------------------------
 
 ## Milestones kept across every descent. Each pays embers once, when first done.

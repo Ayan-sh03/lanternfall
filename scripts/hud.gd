@@ -1458,10 +1458,24 @@ func _draw_hud() -> void:
 	var by := 58.0
 	var oil_k: float = clampf(game.oil / game.max_oil, 0.0, 1.0)
 	var bw: float = 150.0 + (game.max_oil - 100.0) * 0.8
+	# The light dial: the bar takes the colour of how dark Wren walks, with
+	# notches where the tiers change, and names the tier and what it pays.
+	const LIGHT_COL := [Color(1.0, 0.6, 0.14), Color(0.9, 0.48, 0.14), Color(0.7, 0.36, 0.22), Color(0.56, 0.32, 0.68)]
+	var tier: int = game.light_tier()
+	var oil_c: Color = LIGHT_COL[tier]
+	if game.oil < game.bolt_cost():
+		oil_c = oil_c.darkened(0.45)
 	c.draw_rect(Rect2(bx - 2, by - 2, bw + 4, 16), Color(0, 0, 0, 0.65))
-	c.draw_rect(Rect2(bx, by, bw * oil_k, 12), Color(1.0, 0.6, 0.14) if game.oil >= game.bolt_cost() else Color(0.6, 0.3, 0.12))
-	c.draw_rect(Rect2(bx, by, bw * oil_k, 4), Color(1.0, 0.82, 0.4, 0.8))
+	c.draw_rect(Rect2(bx, by, bw * oil_k, 12), oil_c)
+	c.draw_rect(Rect2(bx, by, bw * oil_k, 4), oil_c.lightened(0.35) * Color(1, 1, 1, 0.8))
+	c.draw_rect(Rect2(bx + bw * game.GLOAM_LOW - 1, by, 2, 12), Color(0.6, 0.55, 0.5, 0.45))
+	c.draw_rect(Rect2(bx + bw * game.GLOAM_SAFE - 1, by, 2, 12), Color(0.6, 0.55, 0.5, 0.45))
+	c.draw_rect(Rect2(bx + bw * game.LIGHT_DIM_AT - 1, by, 2, 12), Color(0.6, 0.55, 0.5, 0.45))
 	c.draw_texture_rect(Art.tex["oil"], Rect2(bx + bw + 10, by - 8, 18, 20), false)
+	var tier_s: String = Story.LIGHT_TIERS[tier]
+	if tier > 0:
+		tier_s += "  +%d%% loot" % roundi((game.loot_mult() - 1.0) * 100.0)
+	c.draw_string(font, Vector2(bx + bw + 34, by + 11), tier_s, HORIZONTAL_ALIGNMENT_LEFT, -1, 18, LIGHT_COL[tier].lightened(0.2))
 	var xp_k: float = clampf(float(game.xp) / game.xp_next, 0.0, 1.0)
 	c.draw_rect(Rect2(bx - 2, by + 20, 154, 9), Color(0, 0, 0, 0.65))
 	c.draw_rect(Rect2(bx, by + 22, 150.0 * xp_k, 5), Color(0.55, 0.9, 0.95))

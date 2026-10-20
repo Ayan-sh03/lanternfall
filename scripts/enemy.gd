@@ -71,6 +71,9 @@ var trophy: Sprite2D
 var lost := false
 var seen_at := Vector2.ZERO
 var step_t := 0.0
+## Seconds left of the rush a foe makes when it wakes on Wren in poor light.
+var rush_t := 0.0
+const RUSH := 1.35
 
 static var trophy_tex: ImageTexture
 
@@ -260,13 +263,26 @@ func wake() -> void:
 	g.on_wake(self)
 	if nemesis:
 		g.nemesis_woke(self)
-	g.hud.float_text(position + Vector2(0, -cy * 2.0 - 4.0), "!", Color(1.0, 0.3, 0.25))
+	# Caught in poor light, Wren is ambushed: whatever wakes on her rushes in
+	# and strikes sooner. The wind-up before each blow still shows.
+	var amb: float = g.ambush_time()
+	_ambush(amb)
+	g.hud.float_text(position + Vector2(0, -cy * 2.0 - 4.0), "!!" if amb > 0.0 else "!",
+		Color(0.8, 0.35, 1.0) if amb > 0.0 else Color(1.0, 0.3, 0.25))
 	for o in g.enemies:
 		if o.room == room and not o.awake and o.kind != "warden":
 			if o.nemesis:
 				o.wake()
 			else:
 				o.awake = true
+				o._ambush(amb)
+
+
+func _ambush(t: float) -> void:
+	if t <= 0.0 or kind == "warden":
+		return
+	rush_t = t
+	cd = minf(cd, 0.3)
 
 
 func rouse() -> void:
@@ -378,6 +394,10 @@ func tick(dt: float) -> void:
 			_ai_warden(dt, to_p, dist)
 	if dead:
 		return
+	if rush_t > 0.0:
+		rush_t -= dt
+		if state == "chase":
+			vel *= RUSH
 	if slow_t > 0.0:
 		slow_t -= dt
 		vel *= 0.6 if kind == "warden" else 0.4
