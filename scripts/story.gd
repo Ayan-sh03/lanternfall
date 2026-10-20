@@ -283,6 +283,47 @@ const BARGAIN_COL := Color(1.0, 0.35, 0.3)
 const ROMAN := ["I", "II", "III", "IV", "V", "VI", "VII"]
 
 
+# --- Rooms and the second stair -------------------------------------------------
+
+## What each floor's second stair promises for the floor below: the words on
+## its sign, the icon hung over it, and what Wren says when she first sees it.
+const ROUTES := {
+	"shrine": {"name": "A shrine below", "icon": "shrine", "col": Color(0.55, 0.95, 0.88),
+		"line": "Candle wax on the draught from that stair. There's a shrine down there."},
+	"vault": {"name": "A vault below", "icon": "hoard0", "col": Color(1.0, 0.82, 0.4),
+		"line": "Gold scratched on the stair post. Somebody locked something away below."},
+	"blood": {"name": "More foes, richer embers", "icon": "i_burst", "col": Color(1.0, 0.5, 0.35),
+		"line": "That stair stinks of them. More below, and they'll carry more."},
+	"dark": {"name": "A dark floor, richer for it", "icon": "i_dark", "col": Color(0.7, 0.62, 1.0),
+		"line": "No fire down that way at all. Whatever's hoarded there, nobody's touched it."},
+	"whole": {"name": "Come to the forge whole", "icon": "heart2", "col": Color(1.0, 0.55, 0.6),
+		"line": "The long way round to the forge. Quieter. I'd get there with my breath back."},
+}
+## What Wren says on first stepping into a set-aside room.
+const ROOM_LINES := {
+	"shrine": "A keepers' shrine. Still cold-lit. Nothing hunts in here.",
+	"cache": "A whole crate of oil, left lying about. Nobody leaves oil lying about.",
+	"vault": "Barred, and the lock's warm. Something on this floor carries the key.",
+	"dark": "No braziers in here. Whatever they hid, they hid it in the dark.",
+	"altar": "That altar's still wet. It wants paying.",
+}
+## The shrine's three offers. Picking one spends the shrine.
+const SHRINE := [
+	{"id": "blood", "name": "Blood for Oil", "icon": "oil", "col": Color(1.0, 0.6, 0.3),
+		"desc": "Give a heart. The flask fills, and holds 20 more for the rest of the descent."},
+	{"id": "embers", "name": "Embers for Warmth", "icon": "heart2", "col": Color(1.0, 0.5, 0.55),
+		"desc": "Leave 30 embers in the bowl. Every heart mends."},
+	{"id": "pray", "name": "A Quiet Word", "icon": "i_lamp", "col": Color(0.6, 0.9, 0.94),
+		"desc": "Ask nothing. Half a heart mends and the flask fills."},
+]
+const ALTAR := [
+	{"id": "take", "name": "Take the Gift", "icon": "i_star", "col": Color(1.0, 0.35, 0.4),
+		"desc": "A kindling of your choosing. On this floor the lamp no longer refills itself."},
+	{"id": "leave", "name": "Leave It", "icon": "i_cloak", "col": Color(0.62, 0.58, 0.52),
+		"desc": "Walk away. Some gifts are only bait."},
+]
+
+
 # --- Deaths ---------------------------------------------------------------------
 
 ## What put Wren out, by the kind of foe: who it was, and how it does it.

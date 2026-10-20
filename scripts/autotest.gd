@@ -517,6 +517,12 @@ func mechanics_test() -> void:
 		fails += 1
 	await shot("m_gloam_gone")
 	fails += await _feel_checks(g)
+	# Set-aside rooms and the second stair (roomtest.gd).
+	var rt = load("res://scripts/roomtest.gd").new()
+	rt.main = main
+	rt.at = self
+	add_child(rt)
+	fails += await rt.run_checks()
 	print("MECH %s" % ("PASS" if fails == 0 else "FAIL %d" % fails))
 	main.delete_save(9)
 	get_tree().quit(1 if fails > 0 else 0)
@@ -1680,6 +1686,13 @@ func run() -> void:
 		bal.at = self
 		add_child(bal)
 		bal.run()
+		return
+	if OS.get_cmdline_user_args().has("--rooms"):
+		var rt = load("res://scripts/roomtest.gd").new()
+		rt.main = main
+		rt.at = self
+		add_child(rt)
+		rt.run()
 		return
 	if OS.get_cmdline_user_args().has("--wildreel"):
 		var wr = load("res://scripts/wildreel.gd").new()
