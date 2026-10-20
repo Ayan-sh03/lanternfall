@@ -487,11 +487,16 @@ func _travel(dt: float) -> void:
 			best_key = key
 	if best_d >= 99999.0:
 		# Nothing left to do here: the stair.
+		# A shut stair is passed over for an open one (the second stair has a
+		# seal of its own), and a stair that is not reached is not stood at.
+		best_d = 99999.0
 		for p in g.props:
-			if p["type"] == "stairs":
-				best_p = p["pos"]
-				best_key = "stairs"
-				best_d = float(_dist_to(p["pos"]))
+			if p["type"] == "stairs" and not g.rooms.stair_sealed(p):
+				var d := float(_dist_to(p["pos"]))
+				if best_key != "stairs" or d < best_d:
+					best_p = p["pos"]
+					best_key = "stairs"
+					best_d = d
 	if best_key == "" and best_d >= 99999.0:
 		return
 	# Close enough to use it: use it.
@@ -502,7 +507,11 @@ func _travel(dt: float) -> void:
 		var use := false
 		match np["type"]:
 			"stairs":
-				use = not g.sealed and best_key == "stairs"
+				use = not g.rooms.stair_sealed(np) and best_key == "stairs"
+			"vgate":
+				# Locked until its keeper falls: pressing on it does nothing, and
+				# doing so every frame pins her to the spot.
+				use = false
 			"lamp":
 				use = not np["done"] or oil_k < 0.35
 			"plaque":
