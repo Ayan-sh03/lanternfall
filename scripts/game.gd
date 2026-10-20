@@ -147,7 +147,6 @@ var dead := false
 var death_t := 0.0
 var death_shown := false
 var hitstop := 0.0
-var shake := 0.0
 var anim_t := 0.0
 var run_time := 0.0
 var kills := 0
@@ -176,6 +175,45 @@ var gallery_theme := ""
 var slow_t := 0.0
 ## The camera's shove in the direction of a blow, easing back to centre.
 var cam_punch := Vector2.ZERO
+## Shake is kept as trauma, from 0 to 1, which every blow tops up and which
+## drains by itself. The view moves by trauma squared, so a big blow jolts and
+## then settles fast, and a small one barely stirs it.
+var trauma := 0.0
+## How far the shake has moved the view this frame, in whole art pixels.
+var shake_off := Vector2.ZERO
+## The line a blow of Wren's own rocks the view along (zero: any way).
+var shake_axis := Vector2.ZERO
+var _shake_f := -1
+var _shake_base := 0.0
+var _shake_clock := 0.0
+var _shake_from := Vector2.ZERO
+var _shake_to := Vector2.ZERO
+## Shake has its own dice, so how often the camera rolls never changes the game's.
+var _shake_rng := RandomNumberGenerator.new()
+## Hitstop spent lately and not yet paid back; while it is high, new freezes are cut short.
+var stop_debt := 0.0
+var _stop_f := -1
+var _stop_debt0 := 0.0
+## Peak shake, in art pixels, at full trauma (the Warden falling).
+const SHAKE_PX := 12.0
+## How fast trauma drains, per second.
+const TRAUMA_DECAY := 2.4
+## Stacked blows never shake harder than this, unless one blow alone does.
+const TRAUMA_STACK := 0.75
+## How often the shake picks a new way to lean, per second.
+const SHAKE_HZ := 30.0
+## The pause screen's shake setting: off, low, full.
+const SHAKE_LEVELS := [0.0, 0.5, 1.0]
+## No ordinary blow holds the frame longer than this.
+const HITSTOP_CAP := 0.12
+## Freezes in quick succession shrink as their debt nears this, and the debt
+## drains at STOP_DRAIN seconds per second.
+const STOP_BUDGET := 0.3
+const STOP_DRAIN := 0.3
+## How long a kill holds the frame, by the blow that did it. Only Wren's own
+## blows stop the world; fire, shrapnel and her familiars' work do not, and a
+## bolt holds it less than the staff.
+const KILL_STOP := {"hit": 0.05, "hit_heavy": 0.05, "crit": 0.05, "hit_bolt": 0.03, "zap_hit": 0.04}
 ## Wren's squash and stretch: how hard, and how long since it began.
 var sq_amp := 0.0
 var sq_t := 9.0
@@ -949,8 +987,13 @@ func _tick(dt: float) -> void:
 	if hud.blocking():
 		_update_camera(dt)
 		return
+	stop_debt = maxf(0.0, stop_debt - dt * STOP_DRAIN)
 	if hitstop > 0.0:
 		hitstop -= dt
+		# The world holds still, but the shake runs on through the freeze: that
+		# is what makes the pause read as a blow landing and not a stall.
+		_update_shake(dt)
+		cam.offset = shake_off + cam_punch
 		return
 	if slow_t > 0.0:
 		slow_t -= dt
@@ -1519,7 +1562,7 @@ func open_secret(sc: Dictionary, quiet: bool = false) -> void:
 	fx.spark(wc + Vector2(0, -6), Color(1.0, 0.8, 0.45), 10, 60.0, 0.5, 1.5)
 	scorch(wc, 10.0)
 	add_shake(5.0)
-	hitstop = maxf(hitstop, 0.08)
+	freeze(0.08)
 	Sfx.play("boom", -6.0)
 	Sfx.play("thud", -2.0)
 	hud.say("The wall was hollow.", 3.0, hud.C_EMBER)
@@ -1625,7 +1668,8 @@ func _nemesis_fell(e) -> void:
 	hud.float_text(e.position + Vector2(0, -e.cy * 2.0 - 12.0), "GRUDGE SETTLED", Color(1.0, 0.85, 0.4))
 	hud.flash_white(0.7)
 	slow_t = maxf(slow_t, 0.7)
-	hitstop = 0.15
+	# A story beat, not a blow: it may hold longer than any hit.
+	freeze(0.15, 0.15)
 	Sfx.play("chime", -2.0)
 	drop("heart", e.position)
 	drop("heart", e.position + Vector2(6, 0))
@@ -1643,9 +1687,10 @@ func squash(amp: float) -> void:
 	sq_t = 0.0
 
 
-## Shoves the camera along a direction; it springs back by itself.
+## Shoves the camera along a direction; it springs back by itself. Shoves from
+## many blows at once add up only so far.
 func punch(dir: Vector2, amt: float) -> void:
-	cam_punch += dir.normalized() * amt
+	cam_punch = (cam_punch + dir.normalized() * amt * shake_scale()).limit_length(8.0)
 
 
 func try_dash() -> void:
@@ -1750,15 +1795,18 @@ func do_slash() -> void:
 	if hit > 0:
 		if heavy:
 			kick(0.05)
-		hitstop = 0.08 if heavy else 0.04
+		# One freeze for the swing, however many it struck: the hardest blow's.
+		var stop := 0.08 if heavy else 0.04
 		# A blow that kills, or lands twice as hard, holds the frame a little longer.
 		if killed > 0 and (heavy or crits > 0):
-			hitstop = 0.12
+			stop = 0.12
 			hud.flash_white(0.6)
 		elif crits > 0:
-			hitstop = 0.1
+			stop = 0.1
+		freeze(stop)
 		punch(aim, 3.5 if heavy else 1.8)
-		add_shake(4.0 if heavy else 2.0)
+		# A heavy swing rocks the view along the blow, not every which way.
+		add_shake(4.0 if heavy else 2.0, aim if heavy else Vector2.ZERO)
 		oil = minf(max_oil, oil + stats["siphon"] * hit)
 
 
@@ -1831,16 +1879,21 @@ func hurt_player(amount: int, from: Vector2, kb: float = 170.0, src = null) -> b
 		slow_t = maxf(slow_t, 0.3)
 	flash = 1.0
 	pknock = (ppos - from).normalized() * kb
-	add_shake(5.0)
+	# A charge or a blast lands harder than a claw, and the camera says so.
+	var big: bool = amount >= 2 or kb >= 240.0
+	add_shake(7.0 if big else 5.0)
 	squash(-0.28)
-	punch(ppos - from, 4.0)
-	hitstop = 0.06
-	hud.hurt = 1.0
+	punch(ppos - from, 7.0 if big else 4.0)
+	# Fire does not stop the world, and a hex (src names its kind) holds it less
+	# than a blow struck up close.
+	if not (src is String and src == "fire"):
+		freeze(0.04 if src is String else (0.09 if big else 0.06))
+	hud.hurt_hit(1.0 - float(maxi(hp, 0)) / maxf(float(max_hp), 1.0))
 	Sfx.play("sting", -8.0)
 	Sfx.play("punch")
 	if hp > 0:
 		Sfx.play("hurt_voice", 0.0, 0.05)
-	kick(0.06)
+	kick(0.1 if big else 0.06)
 	if hp <= 0 and spare_match and not match_used:
 		# The spare match: once per depth, the lamp relights itself.
 		match_used = true
@@ -1882,11 +1935,50 @@ func tidy() -> void:
 	fires.clear()
 
 
-func add_shake(a: float) -> void:
-	shake = maxf(shake, a)
-	# On a phone, whatever shakes the screen is also felt in the hand.
-	if pad != null:
+## Shakes the view by up to `a` art pixels at its peak (before the player's
+## setting). Blows in the same frame count once, by the biggest; blows in a row
+## stack, a quarter of the smaller on the larger, up to TRAUMA_STACK, so twenty
+## hits at once shake no harder than the worst of them. dir, if given, is the
+## line to rock along.
+func add_shake(a: float, dir: Vector2 = Vector2.ZERO) -> void:
+	var t := sqrt(clampf(a / SHAKE_PX, 0.0, 1.0))
+	var f := Engine.get_process_frames()
+	var fresh := f != _shake_f
+	if fresh:
+		_shake_f = f
+		_shake_base = trauma
+	var nt := minf(maxf(_shake_base, t) + 0.25 * minf(_shake_base, t), maxf(t, TRAUMA_STACK))
+	if dir != Vector2.ZERO:
+		shake_axis = dir.normalized()
+	elif t > trauma:
+		shake_axis = Vector2.ZERO
+	trauma = maxf(trauma, nt)
+	# On a phone, whatever shakes the screen is also felt in the hand (once a frame).
+	if pad != null and fresh:
 		hud.buzz(int(clampf(a * 6.0, 12.0, 70.0)))
+
+
+## The player's shake setting as a scale: 0 off, 0.5 low, 1 full.
+func shake_scale() -> float:
+	return SHAKE_LEVELS[clampi(int(main.profile.get("shake", 2)), 0, 2)]
+
+
+## Hitstop: the world holds still for a moment so a blow lands. Only Wren's own
+## blows, and blows on Wren, call this. Many hits in one frame hold for the
+## longest of them, never the sum, and none for more than cap; a run of freezes
+## close together is cut shorter, so a crowd does not turn a fight into a stutter.
+func freeze(t: float, cap: float = HITSTOP_CAP) -> void:
+	var f := Engine.get_process_frames()
+	if f != _stop_f:
+		_stop_f = f
+		_stop_debt0 = stop_debt
+	t = minf(t, cap)
+	# A story beat (a cap above the ordinary one) keeps its full length.
+	if cap <= HITSTOP_CAP:
+		t *= clampf(1.0 - _stop_debt0 / STOP_BUDGET, 0.3, 1.0)
+	if t > hitstop:
+		hitstop = t
+		stop_debt = maxf(stop_debt, _stop_debt0 + t)
 
 
 func scorch(pos: Vector2, r: float) -> void:
@@ -2008,8 +2100,11 @@ func enemy_died(e) -> void:
 	var loot: float = LOOT_BY_TIER[tier]
 	if e.xp > 0:
 		main.bank(roundi(e.xp * loot))
-	hitstop = maxf(hitstop, 0.05)
-	add_shake(2.5)
+	# Only a kill by Wren's own hand holds the frame; one that burned or was
+	# caught in a blast still shakes, but less.
+	var stop: float = KILL_STOP.get(e.last_blow, 0.0)
+	freeze(stop)
+	add_shake(2.5 if stop > 0.0 else 1.5)
 	Sfx.play("kill", -4.0)
 	fx.spark(e.center(), e.tint, 6, 95.0, 0.4, 2.0)
 	_disintegrate(e)
@@ -2159,7 +2254,7 @@ func _reflect(s: Dictionary) -> void:
 	s["hit"] = []
 	s["node"].modulate = gold
 	fx.impact(s["pos"], dir.angle(), gold, 1.1)
-	hitstop = maxf(hitstop, 0.05)
+	freeze(0.04)
 	Sfx.play("deflect", -2.0, 0.15)
 	_say_once("reflect", "Struck back. Let it learn what it threw.")
 	main.tally("reflects")
@@ -2728,8 +2823,10 @@ func cine(zoom: float, secs: float, at = null) -> void:
 		cine_pos = at
 
 
-## A quick punch in (positive) or out (negative) that settles by itself.
+## A quick punch in (positive) or out (negative) that settles by itself. It is
+## a jolt like the shake, so the shake setting tones it down too.
 func kick(a: float) -> void:
+	a *= shake_scale()
 	if absf(a) > absf(zoom_kick):
 		zoom_kick = a
 
@@ -2772,9 +2869,32 @@ func _update_camera(dt: float) -> void:
 		var z := cam_zoom * (1.0 + zoom_kick)
 		cam.zoom = Vector2(z, z)
 	cam.position = cam.position.lerp(target, 1.0 - exp(-dt * (4.5 if cine_t > 0.0 or talking else 9.0)))
-	shake = maxf(0.0, shake - dt * 22.0)
+	_update_shake(dt)
 	cam_punch = cam_punch.lerp(Vector2.ZERO, 1.0 - exp(-dt * 14.0))
-	cam.offset = Vector2(rng.randf_range(-1.0, 1.0), rng.randf_range(-1.0, 1.0)) * shake + cam_punch
+	cam.offset = shake_off + cam_punch
+
+
+## Drains the trauma and picks this frame's shake. The lean wanders smoothly
+## between fresh random points, thirty a second, rather than jumping every frame
+## (at 200 fps that is a blur, not a shake), and is rounded to whole art pixels:
+## the world picture then jumps cleanly by its own pixels, and only the camera's
+## smooth motions (following Wren, the punch) go through world_view's
+## leftover-fraction slide.
+func _update_shake(dt: float) -> void:
+	trauma = maxf(0.0, trauma - dt * TRAUMA_DECAY)
+	var amp: float = trauma * trauma * SHAKE_PX * shake_scale()
+	if amp < 0.5:
+		shake_off = Vector2.ZERO
+		return
+	_shake_clock += dt * SHAKE_HZ
+	if _shake_clock >= 1.0:
+		_shake_clock = fmod(_shake_clock, 1.0)
+		_shake_from = _shake_to
+		_shake_to = Vector2(_shake_rng.randf_range(-1.0, 1.0), _shake_rng.randf_range(-1.0, 1.0))
+	var n := _shake_from.lerp(_shake_to, _shake_clock)
+	if shake_axis != Vector2.ZERO:
+		n = shake_axis * n.x + shake_axis.orthogonal() * n.y * 0.3
+	shake_off = (n * amp).round()
 
 
 func _draw_decals() -> void:
@@ -2845,7 +2965,7 @@ func _boss_fell(e) -> void:
 	light_target = 1.0
 	slow_t = 1.5
 	cine(4.2, 2.6, e.position + Vector2(0, -12))
-	hitstop = 0.25
+	freeze(0.25, 0.25)
 	add_shake(12.0)
 	Sfx.play("boom")
 	Sfx.play("bell", 2.0, 0.0)
@@ -2917,7 +3037,7 @@ func _nova_burst(radius: float, dmg: float) -> void:
 	surf.ignite_at(ppos, radius * 0.7)
 	add_shake(7.0)
 	kick(-0.08)
-	hitstop = maxf(hitstop, 0.06)
+	freeze(0.06)
 	nova_flash = 1.0
 	Sfx.play("fire", 2.0)
 	Sfx.play("boom", -6.0)

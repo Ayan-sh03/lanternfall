@@ -31,6 +31,8 @@ var run_over := false
 ## Depths reached at least once (for the depth-select screen) and endings seen.
 var profile := {"max_depth": 1, "endings": [false, false], "sound": true, "haptics": true, "fps": false,
 	"fast": false, "auto_fast": false,
+	# Screen shake: 0 off, 1 low, 2 full (phones start on low; see _ready).
+	"shake": 2,
 	# What every descent leaves behind: embers to spend in the town, the town's
 	# lit lamps, running tallies for the deeds, deeds done, the best runs, and
 	# whether the lamp's resolve (an optional easing) is accepted.
@@ -68,6 +70,8 @@ func _ready() -> void:
 	use_3d = (OS.has_feature("view3d") or OS.get_cmdline_user_args().has("--3d")) \
 		and not OS.get_cmdline_user_args().has("--2d")
 	touch = OS.has_feature("mobile") or OS.get_cmdline_user_args().has("--touch")
+	# A shaking screen held in the hand is harder to read than one on a desk.
+	profile["shake"] = 1 if touch else 2
 	if touch:
 		# The HUD turns touches into clicks itself, one finger at a time.
 		Input.emulate_mouse_from_touch = false
@@ -269,10 +273,10 @@ func _slot_cards() -> Array:
 	return cards
 
 
-func _load_profile() -> void:
-	if not FileAccess.file_exists("user://profile.json"):
+func _load_profile(path: String = "user://profile.json") -> void:
+	if not FileAccess.file_exists(path):
 		return
-	var data = JSON.parse_string(FileAccess.get_file_as_string("user://profile.json"))
+	var data = JSON.parse_string(FileAccess.get_file_as_string(path))
 	if data is Dictionary:
 		profile["max_depth"] = clampi(int(data.get("max_depth", 1)), 1, Story.DEPTHS.size())
 		var e = data.get("endings", [false, false])
@@ -281,6 +285,8 @@ func _load_profile() -> void:
 		for k in ["sound", "haptics", "fps", "fast", "auto_fast", "resolve"]:
 			if data.has(k):
 				profile[k] = bool(data[k])
+		if data.has("shake"):
+			profile["shake"] = clampi(int(data["shake"]), 0, 2)
 		profile["embers"] = maxi(0, int(data.get("embers", 0)))
 		for k in ["town", "feats", "taught", "seen"]:
 			var a = data.get(k, [])

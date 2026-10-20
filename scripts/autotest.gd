@@ -516,9 +516,174 @@ func mechanics_test() -> void:
 	if not ok:
 		fails += 1
 	await shot("m_gloam_gone")
+	fails += await _feel_checks(g)
 	print("MECH %s" % ("PASS" if fails == 0 else "FAIL %d" % fails))
 	main.delete_save(9)
 	get_tree().quit(1 if fails > 0 else 0)
+
+
+## Combat feel: hitstop is the longest of a frame's hits, never their sum, and
+## only Wren's blows (and blows on her) stop the world; shake is capped, moves
+## in whole art pixels and obeys the setting; the setting survives a reload.
+func _feel_checks(g) -> int:
+	# Lambdas capture locals by value, so the count lives in an array.
+	var fails := [0]
+	var feel := func(ok: bool, what: String) -> void:
+		print("MECH feel: %s %s" % [what, "ok" if ok else "FAIL"])
+		if not ok:
+			fails[0] += 1
+	var keep: Dictionary = main.profile.duplicate(true)
+	main.profile["shake"] = 2
+	main.profile["resolve"] = false
+	var crit0: float = g.stats["crit"]
+	g.stats["crit"] = 0.0
+	g.snuffed = false
+	g.god = false
+	g.aim = Vector2.RIGHT
+	var crowd: Array = []
+	for i in 12:
+		var e = g.spawn_enemy("husk", g.ppos + Vector2(15.0 + (i % 3) * 3.0, (i / 3 - 1.5) * 3.0), 0)
+		e.awake = true
+		e.state = "rest"
+		e.st = 99.0
+		e.stun = 99.0
+		e.hp = 999.0
+		crowd.append(e)
+	await get_tree().process_frame
+	var reset := func() -> void:
+		g.hitstop = 0.0
+		g.stop_debt = 0.0
+		g._stop_f = -1
+		g.riposte_t = 0.0
+		g.atk_cd = 0.0
+	# A light swing through the whole crowd holds for one light hit.
+	reset.call()
+	g.combo_t = 0.0
+	g.do_slash()
+	var struck := 0
+	for e in crowd:
+		if e.hp < 999.0:
+			struck += 1
+	feel.call(struck >= 6 and is_equal_approx(g.hitstop, 0.04),
+		"light swing hit %d foes, hitstop %.3f (want 0.040)" % [struck, g.hitstop])
+	reset.call()
+	g.combo = 2
+	g.combo_t = 0.5
+	g.do_slash()
+	feel.call(is_equal_approx(g.hitstop, 0.08), "heavy swing through the crowd, hitstop %.3f (want 0.080)" % g.hitstop)
+	reset.call()
+	g.freeze(0.04)
+	for i in 20:
+		g.freeze(0.12)
+	g.freeze(0.08)
+	feel.call(is_equal_approx(g.hitstop, 0.12), "22 freezes in one frame hold %.3f, the longest (want 0.120)" % g.hitstop)
+	reset.call()
+	g.freeze(1.0)
+	feel.call(is_equal_approx(g.hitstop, g.HITSTOP_CAP), "a huge freeze is capped at %.3f" % g.hitstop)
+	# Freezes in quick succession are cut short.
+	await get_tree().process_frame
+	g.hitstop = 0.0
+	g.freeze(0.12)
+	feel.call(g.hitstop < 0.12, "a freeze straight after another is shorter: %.3f" % g.hitstop)
+	# A burn kill, or fire on Wren, does not stop the world; a hex holds less than a charge.
+	for e in crowd:
+		e.dead = true
+		e.visible = false
+	var b = g.spawn_enemy("husk", g.ppos + Vector2(40, 0), 0)
+	b.awake = true
+	b.hp = 1.0
+	reset.call()
+	b.hurt(5.0, Vector2.ZERO, Color(1.0, 0.6, 0.2), "burn")
+	feel.call(b.dead and g.hitstop == 0.0, "a foe burned out holds nothing: %.3f" % g.hitstop)
+	var hits := {}
+	var wash := {}
+	for kind in ["fire", "hex", "claw", "charge", "claw_low"]:
+		reset.call()
+		g.invuln = 0.0
+		g.hp = 2 if kind == "claw_low" else g.max_hp
+		g.hud.hurt_wash = 0.0
+		var brute = g.spawn_enemy("brute", g.ppos + Vector2(60, 0), 0)
+		match kind:
+			"fire":
+				g.hurt_player(1, g.ppos + Vector2(0, 6), 90.0, "fire")
+			"hex":
+				g.hurt_player(1, g.ppos + Vector2(10, 0), 130.0, "cantor")
+			"charge":
+				g.hurt_player(2, g.ppos + Vector2(10, 0), 280.0, brute)
+			_:
+				g.hurt_player(1, g.ppos + Vector2(10, 0), 170.0, brute)
+		brute.dead = true
+		brute.visible = false
+		hits[kind] = g.hitstop
+		wash[kind] = g.hud.hurt_wash
+	g.hp = g.max_hp
+	g.invuln = 0.0
+	feel.call(hits["fire"] == 0.0 and hits["hex"] < hits["claw"] and hits["claw"] < hits["charge"],
+		"hitstop on Wren: fire %.2f < hex %.2f < claw %.2f < charge %.2f" % [hits["fire"], hits["hex"], hits["claw"], hits["charge"]])
+	feel.call(wash["claw_low"] > wash["claw"], "the red flash is stronger near death: %.2f > %.2f" % [wash["claw_low"], wash["claw"]])
+	g.hitstop = 0.0
+	g.stats["crit"] = crit0
+
+	# Twenty blows in one frame shake no harder than one.
+	g.trauma = 0.0
+	g._shake_f = -1
+	for i in 20:
+		g.add_shake(5.0)
+	feel.call(is_equal_approx(g.trauma, sqrt(5.0 / g.SHAKE_PX)), "20 shakes in one frame: trauma %.3f, as one" % g.trauma)
+	# Blows every frame for a second stack only up to the cap, in whole art pixels.
+	var top := 0.0
+	var worst := 0.0
+	var whole := true
+	for i in 60:
+		g.add_shake(5.0)
+		await get_tree().process_frame
+		top = maxf(top, g.trauma)
+		worst = maxf(worst, maxf(absf(g.shake_off.x), absf(g.shake_off.y)))
+		whole = whole and g.shake_off == g.shake_off.round()
+	feel.call(top <= g.TRAUMA_STACK + 0.001 and worst <= ceilf(g.TRAUMA_STACK * g.TRAUMA_STACK * g.SHAKE_PX) and worst >= 1.0,
+		"a second of blows: trauma at most %.3f, shake at most %d px" % [top, int(worst)])
+	feel.call(whole, "shake moves in whole art pixels")
+	# Off: no shake, punch or zoom kick at all. Low: half.
+	main.profile["shake"] = 0
+	g.trauma = 0.0
+	g._shake_f = -1
+	g.cam_punch = Vector2.ZERO
+	g.zoom_kick = 0.0
+	g.add_shake(12.0)
+	g.punch(Vector2.RIGHT, 6.0)
+	g.kick(0.2)
+	var moved := 0.0
+	for i in 10:
+		await get_tree().process_frame
+		moved = maxf(moved, g.shake_off.length() + g.cam_punch.length())
+	feel.call(moved == 0.0 and g.zoom_kick == 0.0, "shake off: view moved %.2f, zoom kick %.2f" % [moved, g.zoom_kick])
+	main.profile["shake"] = 1
+	g.trauma = 0.0
+	g._shake_f = -1
+	g.add_shake(12.0)
+	worst = 0.0
+	for i in 10:
+		await get_tree().process_frame
+		worst = maxf(worst, maxf(absf(g.shake_off.x), absf(g.shake_off.y)))
+	feel.call(worst >= 1.0 and worst <= g.SHAKE_PX * 0.5, "shake low: at most %d px" % int(worst))
+	# The setting goes into the profile and comes back out of it.
+	var path := "user://feel_profile_%d.json" % OS.get_process_id()
+	var f := FileAccess.open(path, FileAccess.WRITE)
+	f.store_string(JSON.stringify(main.profile))
+	f.close()
+	main.profile["shake"] = 2
+	main._load_profile(path)
+	var back: int = main.profile["shake"]
+	f = FileAccess.open(path, FileAccess.WRITE)
+	f.store_string(JSON.stringify({"shake": 7}))
+	f.close()
+	main._load_profile(path)
+	var clamped: int = main.profile["shake"]
+	DirAccess.remove_absolute(path)
+	feel.call(back == 1 and clamped == 2 and main.hud._opt_text("shake") == "Shake:  full",
+		"shake setting saved and loaded: %d, a bad one clamped to %d" % [back, clamped])
+	main.profile = keep
+	return fails[0]
 
 
 var pfails := 0

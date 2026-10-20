@@ -313,7 +313,7 @@ func _burn_creatures() -> void:
 				e.burn_dps = maxf(e.burn_dps, heat)
 				if e.kind == "gloam" and not e.dead:
 					# Shades are made of the dark; fire undoes them.
-					e.hurt(99.0, Vector2.ZERO, Color(1.0, 0.55, 0.2))
+					e.hurt(99.0, Vector2.ZERO, Color(1.0, 0.55, 0.2), "burn")
 			"water":
 				if e.burn_t > 0.0:
 					e.burn_t = 0.0
