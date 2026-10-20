@@ -59,6 +59,8 @@ var vig: ColorRect
 var fader: ColorRect
 var fade_cb := Callable()
 var hurt := 0.0
+## A brief red blush over the whole screen when Wren is struck.
+var hurt_wash := 0.0
 ## A brief white flash over the whole picture, for the heaviest blows.
 var flash_w := 0.0
 var flash_rect: ColorRect
@@ -110,7 +112,7 @@ func _ready() -> void:
 	_full(vig)
 	vig.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var sh := Shader.new()
-	sh.code = "shader_type canvas_item;\nuniform float hurt = 0.0;\nvoid fragment() {\n\tvec2 uv = UV - 0.5;\n\tfloat v = smoothstep(0.32, 0.86, length(uv * vec2(1.0, 0.92)));\n\tvec3 col = mix(vec3(0.0), vec3(0.65, 0.02, 0.03), hurt);\n\tCOLOR = vec4(vec3(0.65, 0.02, 0.03) + col * 0.0, v * hurt * 0.85);\n}\n"
+	sh.code = "shader_type canvas_item;\nuniform float hurt = 0.0;\nuniform float wash = 0.0;\nvoid fragment() {\n\tvec2 uv = UV - 0.5;\n\tfloat v = smoothstep(0.32, 0.86, length(uv * vec2(1.0, 0.92)));\n\tCOLOR = vec4(0.65, 0.02, 0.03, max(v * hurt * 0.85, wash * 0.13));\n}\n"
 	vmat = ShaderMaterial.new()
 	vmat.shader = sh
 	vig.material = vmat
@@ -987,11 +989,11 @@ func _options_row() -> Control:
 	var row := HBoxContainer.new()
 	row.alignment = BoxContainer.ALIGNMENT_CENTER
 	row.add_theme_constant_override("separation", 10)
-	var keys := ["sound", "fps", "fast"]
+	var keys := ["sound", "shake", "fps", "fast"]
 	if touch:
 		keys.insert(1, "haptics")
 	for k in keys:
-		var b := _btn(_opt_text(k), func(): pass, 215.0)
+		var b := _btn(_opt_text(k), func(): pass, 215.0 if keys.size() < 5 else 196.0)
 		b.add_theme_font_size_override("font_size", 20)
 		b.pressed.connect(_opt_flip.bind(k, b))
 		row.add_child(b)
@@ -999,6 +1001,8 @@ func _options_row() -> Control:
 
 
 func _opt_text(k: String) -> String:
+	if k == "shake":
+		return "Shake:  " + ["off", "low", "full"][clampi(int(main.profile["shake"]), 0, 2)]
 	var on: bool = main.profile[k]
 	match k:
 		"sound":
@@ -1011,16 +1015,30 @@ func _opt_text(k: String) -> String:
 
 
 func _opt_flip(k: String, b: Button) -> void:
-	main.profile[k] = not main.profile[k]
+	if k == "shake":
+		# Full, then low, then off, then round again.
+		main.profile[k] = (int(main.profile[k]) + 2) % 3
+	else:
+		main.profile[k] = not main.profile[k]
 	main.apply_options()
 	main._save_profile()
 	b.text = _opt_text(k)
 	Sfx.play("ui_ok")
 
 
-## A short rumble on phones; calls that come too close together are dropped.
 func flash_white(a: float) -> void:
 	flash_w = maxf(flash_w, a)
+
+
+## Wren is struck: the edges redden and the screen blushes for an instant, both
+## more the nearer she is to going out (k from 0, unhurt, to 1, out).
+func hurt_hit(k: float) -> void:
+	k = clampf(k, 0.0, 1.0)
+	hurt = maxf(hurt, 0.6 + 0.4 * k)
+	hurt_wash = maxf(hurt_wash, 0.3 + 0.7 * k)
+
+
+## A short rumble on phones; calls that come too close together are dropped.
 
 
 func buzz(ms: int) -> void:
@@ -1330,9 +1348,12 @@ func _process(dt: float) -> void:
 	if in_game and not game.dead and game.hp <= 2:
 		low = 0.22 + 0.14 * sin(t * 5.0)
 	var red := maxf(hurt, low) if in_game else 0.0
+	hurt_wash = maxf(0.0, hurt_wash - dt * 7.0)
+	var wash := hurt_wash if in_game else 0.0
 	vmat.set_shader_parameter("hurt", red)
+	vmat.set_shader_parameter("wash", wash)
 	# Full-screen layers are only drawn while they have something to show.
-	vig.visible = red > 0.01
+	vig.visible = red > 0.01 or wash > 0.01
 	flash_w = maxf(0.0, flash_w - dt * 9.0)
 	flash_rect.color.a = flash_w * 0.2
 	flash_rect.visible = flash_w > 0.01 and in_game

@@ -43,6 +43,7 @@ The 2D world is drawn into a small `SubViewport` at one pixel per art pixel, the
 - Do not create a `ShaderMaterial` per object for one-off effects; share them (death ghosts use `Art.ghost_mat`). Enemies still own one material each for the hit flash.
 - Avoid per-frame allocations in `_tick`, `enemy.gd` and `fx.gd`. Keep work off the first-kill and first-spawn path (build or cache things when the floor loads).
 - Saves go through `main.gd`; the test harness uses slot 9 and deletes it.
+- Hitstop goes through `game.freeze(t)`, never `hitstop = ...`: a frame's hits hold for the longest, not the sum, capped at `HITSTOP_CAP` and cut shorter after a run of freezes. Only Wren's own blows and blows on her freeze; kills look up `KILL_STOP` by the foe's `last_blow`. Shake goes through `game.add_shake(a, dir)`: trauma that stacks only to `TRAUMA_STACK`, rounded to whole art pixels, scaled by the profile's `shake` setting (0 off, 1 low, 2 full), which also scales `punch` and `kick`.
 
 ## Testing
 

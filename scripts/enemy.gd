@@ -53,6 +53,9 @@ var slow_t := 0.0
 var burn_t := 0.0
 var burn_dps := 0.0
 var burn_acc := 0.0
+## The kind of the last blow taken (its sound id), so a kill knows whether it
+## was Wren's own hand and should hold the frame (see game.KILL_STOP).
+var last_blow := ""
 var orbit_cd := 0.0
 var spawn_idx := -1
 ## Set for characters whose limbs are animated part by part (see Art._anim).
@@ -282,6 +285,7 @@ func hurt(amount: float, kb: Vector2, col: Color = Color(1.0, 0.92, 0.65), snd: 
 	if dead or state == "dormant":
 		return
 	hp -= amount
+	last_blow = snd
 	flash = 1.0
 	knock += kb / weight
 	# Heavier foes give less.
