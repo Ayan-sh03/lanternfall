@@ -21,6 +21,7 @@ Lanternfall is a dark-fantasy pixel-art dungeon crawler in Godot 4.3 (GL Compati
 - `game.gd`: one run. Floor generation (via `dungeon.gd`), player, enemies, shots, powers, pickups, fog of war, camera intent. `_process` calls `_tick(dt)` then `view.sync()`. Has a section profiler: `prof_on`, `prof`, `_pt(name, t0)`.
 - `enemy.gd`: foes (husk, moth, cantor, brute, slime/slimelet, wisp, gloam, the warden boss). `hurt(amount, kb, col, snd)` is the damage entry point; `snd` names the kind of blow (`hit`, `hit_heavy`, `crit`, `burn`...) so each sounds different.
 - `hud.gd` (CanvasLayer): full-resolution UI; labels over the world are placed with `game.screen_pos`. `touch.gd`: on-screen pad. `story.gd`: all the writing.
+- Teaching: `game.teach(id)` shows one of `Story.LESSONS` the first time its moment comes (looked for in `game._update_teach`, a few times a second) and records it in `profile["taught"]`; foes in sight go into `profile["seen"]`. `hud.lesson` draws it (never modal). The bestiary (`hud.show_codex`, from pause and town) reads `Story.FOES` and those two lists.
 - `fx.gd`: particles, arcs and rings, drawn with `_draw`. `surfaces.gd`: oil, fire, webs, water, slick. `echo.gd`, `moth.gd` (Flit), `nemesis.gd`: features.
 - `view3d.gd`: optional 3D renderer that watches the 2D state and re-draws it; game rules never run in 3D.
 - `sfx.gd`: autoload `Sfx`, see Audio. `art.gd`: static class holding every texture.

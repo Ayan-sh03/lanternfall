@@ -981,6 +981,7 @@ func _tick(dt: float) -> void:
 	pt = _pt("purge", pt)
 	_update_events(dt)
 	pt = _pt("events", pt)
+	_update_teach(dt)
 
 
 ## Profiling: microseconds spent in each part of the update, summed while on.
@@ -1878,6 +1879,91 @@ func _say_once(key: String, text: String) -> void:
 		return
 	said[key] = true
 	hud.say(text)
+
+
+# --- Teaching, the first time each thing comes up -----------------------------------
+
+## How often the moments worth a lesson are looked for, and the hollow walls listened at.
+var teach_t := 0.0
+var draught_t := 0.0
+## True once every lesson is known and every foe met, so the look-out can stop.
+var teach_done := false
+
+
+## Shows a lesson the first time its moment comes on this profile, and never
+## again (the bestiary's Lamp Lore page keeps them). A lesson still on the
+## screen makes the next one wait for its own moment to come round again.
+func teach(id: String) -> bool:
+	if main.knows(id) or hud.lesson_busy():
+		return false
+	main.learn(id)
+	hud.lesson(id)
+	return true
+
+
+## A few times a second: is something happening that the lamp has not taught
+## yet, and has a new kind of foe come into sight? Also, near a hollow wall,
+## a draught and a trickle of grit, so it can be found in the flat view too.
+func _update_teach(dt: float) -> void:
+	teach_t -= dt
+	if teach_t > 0.0 or dead or depth <= 0:
+		return
+	teach_t = 0.25
+	_listen_hollow()
+	if teach_done:
+		return
+	var seen: Array = main.profile["seen"]
+	for e in enemies:
+		if not e.dead and e.visible and not seen.has(e.kind) and e.kind != "slimelet":
+			main.saw(e.kind)
+	if hud.lesson_busy():
+		return
+	var taught: Array = main.profile["taught"]
+	if not taught.has("parry"):
+		for e in enemies:
+			if not e.dead and e.visible and e.state == "wind" and (e.kind == "husk" or e.kind == "brute") \
+					and (e.position - ppos).length() < 90.0 and teach("parry"):
+				return
+	if not taught.has("reflect"):
+		for s in shots:
+			if not s["friendly"] and (s["pos"] - ppos).length() < 110.0 and teach("reflect"):
+				return
+	var k := oil / maxf(max_oil, 1.0)
+	if not snuffed and k < 0.3 and teach("snuff"):
+		return
+	if snuffed and snuff_t > 1.0 and teach("dark"):
+		return
+	var near := 0
+	if not taught.has("flask") or not taught.has("echo"):
+		for e in enemies:
+			if not e.dead and e.awake and e.visible and (e.position - ppos).length() < 110.0:
+				near += 1
+	if near >= 3 and oil >= FLASK_COST + 15.0 and teach("flask"):
+		return
+	# Swings in the last moment, and a fight still around her: an echo would land.
+	if near >= 1 and echo_blows.size() >= 2 and echo_cd <= 0.0 and dash_stock > 0 and teach("echo"):
+		return
+	for id in powers:
+		if powers[id] and teach(id):
+			return
+	if taught.size() >= Story.LESSONS.size() and seen.size() >= Story.FOES.size():
+		teach_done = true
+
+
+func _listen_hollow() -> void:
+	draught_t -= 0.25
+	if draught_t > 0.0:
+		return
+	for sc in secrets:
+		if sc["open"]:
+			continue
+		var f: Vector2i = sc["f"]
+		if vis[f.y * W + f.x] == 1 and (tile_center(f) - ppos).length() < 64.0:
+			draught_t = 3.5
+			var wc := tile_center(sc["w"])
+			Sfx.play("thud", -24.0, 0.3)
+			fx.spark(wc + Vector2(0, -12), Color(0.62, 0.57, 0.5, 0.8), 4, 10.0, 0.9, 1.5, 70.0)
+			teach("hollow")
 
 
 # --- Enemies, shots, loot -------------------------------------------------------
