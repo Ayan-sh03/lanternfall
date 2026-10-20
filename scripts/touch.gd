@@ -250,7 +250,7 @@ func _draw() -> void:
 					cdk = clampf(game.dash_cd / game.stats["dash_cd"], 0.0, 1.0)
 			"nova", "spark", "ward":
 				cdk = clampf(game.pcd[id] / (Story.POWERS[id]["cd"] * game.stats["cdr"]), 0.0, 1.0)
-				can_pay = game.oil >= Story.POWERS[id]["cost"]
+				can_pay = game.oil >= game.power_cost(id)
 		var ready := can_pay and cdk <= 0.0
 		var g: float = glow.get(id, 0.0)
 		var down: bool = held.values().has(id)

@@ -20,7 +20,7 @@ Get the latest build from the [Releases page](https://github.com/Ayan-sh03/lante
 - A three-hit staff combo, ember bolts that burn lamp oil, and a dash.
 - Parries: strike a foe as it lunges or charges and it staggers; strike a hex out of the air and it flies back at whoever cast it.
 - The lamp runs on the same oil as the bolts. The emptier the flask, the smaller the light, and below a fifth, shades called gloams come out of the dark until the lamp is bright again.
-- Twenty-three kindlings to choose between as you level up, and relic powers found on the way down.
+- Thirty kindlings to choose between as you level up, each belonging to one of the lamp's three aspects (Oil & Ember, Wick & Hearth, Shade & Echo) so a build finds its shape; six of them are bargains with a real price. Relic powers are drafted, one of up to three, from Maren's stands on the way down.
 - Wayside lamps that heal you and save the run. Three save slots, and any depth you have reached can be started from again.
 - Deaths that teach: the death screen shows what put you out and how to beat it, no single blow takes you from more than a heart to nothing, and the last heart gets a longer breath before the next hit. A foe winding up off screen or in the dark is marked at the edge of the screen.
 - Nothing earned is lost. Every foe put out pays embers straight into your profile, kept through any death, to spend lighting lamps in the town above: nine of them, each a lasting help to every descent after (another heart, a deeper flask, a fourth kindling to choose from, a fresh choice once per depth, and more).

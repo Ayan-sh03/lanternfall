@@ -488,6 +488,7 @@ func progress_test() -> void:
 	pr["resolve"] = false
 	await w(0.5)
 	main.hud._close_modal()
+	await build_checks()
 	main.new_game(1)
 	await w(2.5)
 	var g = main.game
@@ -658,6 +659,197 @@ func progress_test() -> void:
 	print("PROG %s" % ("PASS" if pfails == 0 else "FAIL %d" % pfails))
 	main.delete_save(9)
 	get_tree().quit(1 if pfails > 0 else 0)
+
+
+## Choices with stakes: the relic draft, the aspects the offers lean toward,
+## stack caps, what each bargain gives and takes, and an old save still loading.
+func build_checks() -> void:
+	main.new_game(1)
+	await w(2.0)
+	var g = main.game
+	var hud = main.hud
+	g.bot = true
+	g.bot_manual = true
+	g.god = false
+	hud.card_t = 0.0
+	for e in g.enemies:
+		e.dead = true
+		e.visible = false
+
+	# The relic draft: up to three distinct relics she lacks, until none are left.
+	var got: Array = []
+	var draft_ok := true
+	for k in 4:
+		g._offer_relics()
+		var n_left: int = 4 - k
+		var ids: Array = g.offer.duplicate()
+		var distinct := true
+		for id in ids:
+			if ids.count(id) > 1 or got.has(id):
+				distinct = false
+		var ok: bool = hud.modal == "choice" and g.offer_kind == "relic" and ids.size() == mini(3, n_left) and distinct
+		if k == 0:
+			await w(0.6)
+			await shot("p_relic_draft")
+		if not ok:
+			draft_ok = false
+			print("PROG relic offer %d: %s" % [k, ids])
+		hud._choose(0)
+		got.append(ids[0])
+		hud._close_modal()
+	pcheck(draft_ok, "each relic stand offers up to three distinct relics Wren lacks (%s)" % [got])
+	pcheck(g.powers["nova"] and g.powers["spark"] and g.powers["ward"] and g.spare_match, "four stands give all four relics, in the order chosen")
+	g._offer_relics()
+	pcheck(g.offer_kind == "boon", "with every relic held, a stand is a kindling cache")
+	hud._close_modal()
+
+	# The first offer shows one of each aspect.
+	g.boons.clear()
+	var first: Array = g.draw_offer(3)
+	var seen := {}
+	for c in first:
+		seen[c["aspect"]] = true
+	pcheck(seen.size() == 3, "the first offer holds one card of each aspect")
+
+	# Two kindlings of Oil & Ember: the offers lean toward it, with one card from elsewhere.
+	g.boons = ["kindle", "flask"]
+	var lean := 0
+	var slots := 0
+	var always_off := true
+	for k in 300:
+		var opts: Array = g.draw_offer(3)
+		var off := 0
+		for c in opts:
+			if c["aspect"] != "ember":
+				off += 1
+			if not c["off"]:
+				slots += 1
+				if c["aspect"] == "ember":
+					lean += 1
+		if off == 0:
+			always_off = false
+	var share := float(lean) / maxf(slots, 1.0)
+	pcheck(share > 0.55, "after two Oil & Ember picks, %.0f%% of the leaning cards are Oil & Ember" % (share * 100.0))
+	pcheck(always_off, "every offer still holds a card from another aspect")
+
+	# A capped kindling stops being offered.
+	g.boons = ["edge", "edge", "edge"]
+	var capped_seen := false
+	for k in 200:
+		for c in g.draw_offer(4):
+			if c["id"] == "edge":
+				capped_seen = true
+	pcheck(not g.can_offer(Story.BOONS[0]) and not capped_seen, "Keen Edge stops coming after three")
+	var bargains := 0
+	var two := false
+	g.boons.clear()
+	for k in 300:
+		var nb := 0
+		for c in g.draw_offer(4):
+			if c.get("bargain", false):
+				nb += 1
+		bargains += nb
+		two = two or nb > 1
+	pcheck(bargains > 0 and not two, "bargains are offered, never two at once (%d seen)" % bargains)
+
+	# Offer cards: an aspect on each, a bargain's price, and the half of a pair.
+	g.boons = ["burn", "edge", "edge"]
+	var cards: Array = [g.boon_card(Story.BOONS[19]), g.boon_card(Story.BOONS[24]), g.boon_card(Story.BOONS[0])]
+	pcheck(cards[0]["id"] == "trail" and String(cards[0].get("hint", "")).contains("Wildfire") and cards[0].get("pairs", false),
+		"Cinder Trail's card says it pairs with Afterburn (%s)" % cards[0].get("hint", ""))
+	pcheck(cards[1]["id"] == "burnwick" and cards[1].has("cost"), "a bargain's card carries its price")
+	pcheck(cards[2].get("held", "") == "2 of 3", "a stacking kindling's card says how many are held (%s)" % cards[2].get("held", ""))
+	g._show_offer("boon", "The warmth below reaches up to you", "Level 4  -  choose a kindling", cards, func(_i): pass)
+	await w(0.7)
+	await shot("p_offer_cards")
+	hud._close_modal()
+
+	# Each bargain pays and costs.
+	var s0: Dictionary = g.stats.duplicate()
+	g.apply_boon("burnwick")
+	pcheck(is_equal_approx(g.stats["bolt_dmg"], s0["bolt_dmg"] * 1.6) and is_equal_approx(g.stats["oil_regen"], s0["oil_regen"] * 0.5),
+		"Burn the Wick: bolts +60%, oil back half as fast")
+	g.apply_boon("lens")
+	pcheck(is_equal_approx(g.stats["power"], s0["power"] * 1.5) and is_equal_approx(g.power_cost("nova"), 42.0),
+		"Cracked Lens: powers +50%%, a nova costs %.0f oil" % g.power_cost("nova"))
+	g.apply_boon("leaden")
+	pcheck(is_equal_approx(g.stats["dmg"], s0["dmg"] * 1.45) and is_equal_approx(g.stats["speed"], s0["speed"] * 0.85),
+		"Leaden Hook: strikes +45%, 15% slower")
+	var mhp: int = g.max_hp
+	g.apply_boon("hollow")
+	pcheck(g.max_hp == mhp - 2 and is_equal_approx(g.stats["crit"], s0["crit"] + 0.25), "Hollow Heart: a heart gone, +25% sure strikes")
+	# The pact: half again in embers, and the gloams come at a third of a flask.
+	var h = g.spawn_enemy("husk", g.ppos + Vector2(60, 0), 0)
+	var e0 := int(main.profile["embers"])
+	h.hurt(99999.0, Vector2.ZERO)
+	var plain := int(main.profile["embers"]) - e0
+	g.oil = g.max_oil * 0.3
+	g.gloam_t = 0.0
+	var gl0 := _gloams(g)
+	g._update_gloam(0.1)
+	var before_pact := _gloams(g) - gl0
+	g.apply_boon("pact")
+	h = g.spawn_enemy("husk", g.ppos + Vector2(60, 0), 0)
+	e0 = int(main.profile["embers"])
+	h.hurt(99999.0, Vector2.ZERO)
+	var paid := int(main.profile["embers"]) - e0
+	g.gloam_t = 0.0
+	g.oil = g.max_oil * 0.3
+	gl0 = _gloams(g)
+	g._update_gloam(0.1)
+	var after_pact := _gloams(g) - gl0
+	pcheck(paid == roundi(plain * 1.5) and before_pact == 0 and after_pact == 1,
+		"Pact of Embers: a kill pays %d not %d, and gloams come at 30%% oil (%d -> %d)" % [paid, plain, before_pact, after_pact])
+	for e in g.enemies:
+		e.dead = true
+		e.visible = false
+	g.oil = g.max_oil
+	g.apply_boon("moth_cloak")
+	g.dash_t = 0.0
+	g.dash_stock = 1
+	g.try_dash()
+	var dash_long: bool = is_equal_approx(g.dash_t, 0.24)
+	g.dash_t = 0.0
+	g.aim = Vector2.RIGHT
+	g.hp = 8
+	g.invuln = 0.0
+	g.hurt_player(1, g.ppos + Vector2(20, 0), 0.0, "husk")
+	var front: int = 8 - g.hp
+	g.hp = 8
+	g.invuln = 0.0
+	g.hurt_player(1, g.ppos + Vector2(-20, 0), 0.0, "husk")
+	var behind: int = 8 - g.hp
+	pcheck(dash_long and front == 1 and behind == 2, "Moth-Eaten Cloak: a longer dash, and blows from behind land harder (%d, %d)" % [front, behind])
+	g.hp = g.max_hp
+
+	# A save from before any of this still loads, and the new numbers start plain.
+	var old_stats := {"dmg": 12.5, "reach": 1.0, "speed": 80.0, "bolt_dmg": 13.0, "bolt_n": 1, "dash_cd": 0.9,
+		"light": 1.0, "oil_regen": 2.0, "heart_drop": 0.05, "sear": 0.0, "siphon": 0.0, "thorns": 0.0, "pierce": 0,
+		"power": 1.0, "cdr": 1.0, "orbit": 0, "wave": 0.0, "burn": 0.0, "shatter": 0.0, "dash_n": 1, "trail": 0.0,
+		"magnet": 1.0, "xp_mult": 1.0, "crit": 0.0, "wildfire": 0.0, "starfall": 0.0, "flashstep": 0.0,
+		"chainburst": 0.0, "riposte": 0.0, "mote_k": 1.0, "echo": 0.5, "echo_cd": 3.0}
+	main.write_save({"v": 1, "depth": 2, "name": "The Buried Choir", "seed": 4242, "lamp_idx": -1, "hp": 6, "max_hp": 8,
+		"oil": 80.0, "max_oil": 100.0, "xp": 3, "level": 2, "xp_next": 30, "stats": old_stats, "boons": ["edge"],
+		"powers": {"nova": true, "spark": false, "ward": false}, "spare": false, "match_used": false, "kills": 5,
+		"pages": 1, "run_time": 100.0, "said": {}, "done_props": [], "dead_spawns": []})
+	var s: Dictionary = main.read_save(9)
+	main.new_game(int(s["depth"]), s)
+	await w(1.5)
+	g = main.game
+	var left: Array = []
+	for r in g.relics_unowned():
+		left.append(r["power"])
+	pcheck(g.depth == 2 and g.boons == ["edge"] and is_equal_approx(g.stats["dmg"], 12.5) and is_equal_approx(g.stats["dash_len"], 1.0)
+		and g.stats["frail"] == 0 and left == ["spark", "ward", "match"], "an old save loads, with the relics it lacks still to find (%s)" % [left])
+	main.delete_save(9)
+
+
+func _gloams(g) -> int:
+	var n := 0
+	for e in g.enemies:
+		if e.kind == "gloam" and not e.dead:
+			n += 1
+	return n
 
 
 var probe_on := false

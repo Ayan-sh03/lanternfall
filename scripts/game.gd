@@ -105,8 +105,16 @@ var stats := {"dmg": 10.0, "reach": 1.0, "speed": 80.0, "bolt_dmg": 13.0, "bolt_
 	# Kindlings that combine two others (Story.DUOS).
 	"wildfire": 0.0, "starfall": 0.0, "flashstep": 0.0, "chainburst": 0.0, "riposte": 0.0, "mote_k": 1.0,
 	# Wren's echo: how hard its blows land, and how soon another can follow.
-	"echo": 0.5, "echo_cd": 3.0}
+	"echo": 0.5, "echo_cd": 3.0,
+	# What the bargains (Story.BOONS) change: how far a dash carries, the extra
+	# a blow from behind lands, what a power costs, embers paid per kill, and
+	# how full the flask can be when the gloams start to come.
+	"dash_len": 1.0, "frail": 0, "power_cost": 1.0, "ember_k": 1.0, "gloam_k": 1.0}
 var boons: Array = []
+## The cards on the table at the last offer (kindlings or relics), by id, and
+## which kind it was; for the bots and their tallies.
+var offer: Array = []
+var offer_kind := ""
 var atk_cd := 0.0
 var bolt_cd := 0.0
 ## Input buffers: a press made slightly too early is remembered for a moment.
@@ -553,11 +561,13 @@ func _prepare(d: int) -> void:
 		grant_power(Story.RELICS[i]["power"])
 	var picks := 2 * (d - 1)
 	for i in picks:
+		# Drawn the way the offers lean, so the build has a shape; never a
+		# bargain, since nobody chose to pay for it.
 		var pool: Array = []
 		for b in Story.BOONS:
-			if not (b.get("unique", false) and boons.has(b["id"])):
-				pool.append(b["id"])
-		apply_boon(pool[rng.randi() % pool.size()])
+			if can_offer(b) and not b.get("bargain", false):
+				pool.append(b)
+		apply_boon(_draw_leaning(pool, aspect_counts())["id"])
 	level = 1 + picks
 	xp = 0
 	xp_next = 14 + level * 8
@@ -1634,7 +1644,7 @@ func try_dash() -> void:
 		return
 	dash_buf = 0.0
 	dash_dir = last_mv if last_mv != Vector2.ZERO else aim
-	dash_t = 0.16
+	dash_t = 0.16 * stats["dash_len"]
 	dash_stock -= 1
 	if dash_cd <= 0.0:
 		dash_cd = stats["dash_cd"]
@@ -1796,6 +1806,9 @@ func hurt_player(amount: int, from: Vector2, kb: float = 170.0, src = null) -> b
 	elif src != null and is_instance_valid(src):
 		last_cause = src.kind
 		last_by_nem = src.nemesis
+	# The Moth-Eaten Cloak: a blow from behind her finds the holes.
+	if stats["frail"] > 0 and (from - ppos).dot(aim) < 0.0:
+		amount += stats["frail"]
 	# No single blow takes Wren from more than one heart straight to nothing.
 	var spared: bool = amount >= hp and hp > 2
 	hp -= amount
@@ -1896,7 +1909,7 @@ func enemy_died(e) -> void:
 	kills += 1
 	main.tally("kills")
 	if e.xp > 0:
-		main.bank(e.xp)
+		main.bank(roundi(e.xp * stats["ember_k"]))
 	hitstop = maxf(hitstop, 0.05)
 	add_shake(2.5)
 	Sfx.play("kill", -4.0)
@@ -2081,7 +2094,7 @@ func _update_gloam(dt: float) -> void:
 			_disintegrate(e)
 		gloam_t = 2.0
 		return
-	if k > GLOAM_LOW:
+	if k > GLOAM_LOW * stats["gloam_k"]:
 		return
 	gloam_t -= dt
 	if gloam_t > 0.0 or shades.size() >= 3:
@@ -2280,32 +2293,230 @@ func _level_up() -> void:
 	_offer_boons("The warmth below reaches up to you", "Level %d  -  choose a kindling" % level)
 
 
+## How hard the offers lean toward an aspect Wren has taken from: each
+## kindling she holds of it adds this to its cards' weight (counting up to
+## three), against 1 for any card. With two of one aspect held and the pool
+## about even, roughly three in four of the leaning cards are of it.
+const ASPECT_PULL := 2.0
+
+
 func _offer_boons(title: String, sub: String) -> void:
-	var pool: Array = []
-	for b in Story.BOONS:
-		if b.get("unique", false) and boons.has(b["id"]):
-			continue
-		pool.append(b)
-	var opts: Array = []
-	for i in mini(4 if main.has_lamp("chapel") else 3, pool.size()):
-		var j := rng.randi() % pool.size()
-		opts.append(pool[j])
-		pool.remove_at(j)
-	# Once Wren holds both halves of a pair, its combined kindling may take a place.
+	var opts := draw_offer(4 if main.has_lamp("chapel") else 3)
+	# Once Wren holds both halves of a pair, its combined kindling may take a
+	# place; never the card from another aspect.
 	var ready: Array = []
 	for d in Story.DUOS:
 		if not boons.has(d["id"]) and boons.has(d["needs"][0]) and boons.has(d["needs"][1]):
 			ready.append(d)
 	if not ready.is_empty() and rng.randf() < 0.65:
 		var d: Dictionary = ready[rng.randi() % ready.size()]
-		opts[rng.randi() % opts.size()] = {"id": d["id"], "name": d["name"], "desc": d["desc"],
+		var card := {"id": d["id"], "name": d["name"], "desc": d["desc"], "tag": "Two kindlings, made one",
 			"col": Story.DUO_COL, "icon": hud.ICONS.get(d["needs"][0], "i_flame")}
+		var slots: Array = []
+		for i in opts.size():
+			if not opts[i].get("off", false):
+				slots.append(i)
+		if slots.is_empty():
+			opts.append(card)
+		else:
+			opts[slots[rng.randi() % slots.size()]] = card
+	if opts.is_empty():
+		return
 	var again := Callable()
 	if main.has_lamp("belltower") and reroll_depth != depth:
 		again = func():
 			reroll_depth = depth
 			_offer_boons(title, sub)
-	hud.show_choice(title, sub, opts, func(i): apply_boon(opts[i]["id"]), again, "Ring the bell: a fresh choice")
+	_show_offer("boon", title, sub, opts, func(i): apply_boon(opts[i]["id"]), again, "Ring the bell: a fresh choice")
+
+
+## Every offer of cards (kindlings, relics) goes through here, so the bots and
+## their tallies can see what was on the table. A bot picks through the
+## HUD's own auto-pick, like any other choice.
+func _show_offer(kind: String, title: String, sub: String, opts: Array, cb: Callable,
+		again: Callable = Callable(), again_label: String = "Back") -> void:
+	offer_kind = kind
+	offer.clear()
+	for o in opts:
+		offer.append(o["id"])
+	hud.show_choice(title, sub, opts, cb, again, again_label)
+
+
+## Whether a kindling may still be offered: not a one-time kindling Wren
+## already holds, not one stacked to its cap (Story.BOONS "max"), and not
+## Hollow Heart when it would leave her a single heart.
+func can_offer(b: Dictionary) -> bool:
+	var cap: int = 1 if b.get("unique", false) else int(b.get("max", 99))
+	if boons.count(b["id"]) >= cap:
+		return false
+	if b["id"] == "hollow" and max_hp <= 4:
+		return false
+	return true
+
+
+## How many kindlings Wren holds of each lantern aspect (Story.ASPECTS).
+func aspect_counts() -> Dictionary:
+	var out := {}
+	for a in Story.ASPECTS:
+		out[a] = 0
+	for b in Story.BOONS:
+		out[b["aspect"]] += boons.count(b["id"])
+	return out
+
+
+## n kindlings for an offer, as cards. With nothing taken yet, one of each
+## aspect, so the first pick chooses a road. After that the draw leans toward
+## the aspects Wren holds, but one card always comes from outside her leading
+## aspect, so a turn is still on the table. At most one bargain at a time.
+func draw_offer(n: int) -> Array:
+	var pool: Array = []
+	for b in Story.BOONS:
+		if can_offer(b):
+			pool.append(b)
+	var held := aspect_counts()
+	var lead := ""
+	for a in held:
+		if held[a] > 0 and (lead == "" or held[a] > held[lead]):
+			lead = a
+	var picked: Array = []
+	var off_id := ""
+	if lead == "":
+		for a in Story.ASPECTS:
+			_offer_take(picked, pool, _offer_of(pool, a, true))
+	else:
+		_offer_take(picked, pool, _offer_of(pool, lead, false))
+		if not picked.is_empty():
+			off_id = picked[0]["id"]
+	while picked.size() < n and not pool.is_empty():
+		_offer_take(picked, pool, _draw_leaning(pool, held))
+	picked = picked.slice(0, n)
+	# Shuffled, so the card from elsewhere is not always in the same place.
+	for i in range(picked.size() - 1, 0, -1):
+		var j := rng.randi() % (i + 1)
+		var tmp = picked[i]
+		picked[i] = picked[j]
+		picked[j] = tmp
+	var cards: Array = []
+	for b in picked:
+		var c := boon_card(b)
+		c["off"] = b["id"] == off_id
+		cards.append(c)
+	return cards
+
+
+func _offer_take(picked: Array, pool: Array, b: Dictionary) -> void:
+	if b.is_empty():
+		return
+	picked.append(b)
+	pool.erase(b)
+	if b.get("bargain", false):
+		for o in pool.duplicate():
+			if o.get("bargain", false):
+				pool.erase(o)
+
+
+## A random kindling from the pool that is (same) or is not (not same) of aspect a.
+func _offer_of(pool: Array, a: String, same: bool) -> Dictionary:
+	var c: Array = []
+	for b in pool:
+		if (b["aspect"] == a) == same:
+			c.append(b)
+	return {} if c.is_empty() else c[rng.randi() % c.size()]
+
+
+## A kindling drawn from the pool, weighted toward the aspects Wren holds.
+func _draw_leaning(pool: Array, held: Dictionary) -> Dictionary:
+	if pool.is_empty():
+		return {}
+	var total := 0.0
+	for b in pool:
+		total += 1.0 + ASPECT_PULL * mini(held[b["aspect"]], 3)
+	var r := rng.randf() * total
+	for b in pool:
+		r -= 1.0 + ASPECT_PULL * mini(held[b["aspect"]], 3)
+		if r <= 0.0:
+			return b
+	return pool[pool.size() - 1]
+
+
+## A kindling as an offer card: its Story entry, how many of it Wren already
+## holds against its cap, and whether taking it finishes a pair she has half
+## of (Story.DUOS) or starts one.
+func boon_card(b: Dictionary) -> Dictionary:
+	var o := b.duplicate()
+	var have := boons.count(b["id"])
+	if have > 0 and b.has("max"):
+		o["held"] = "%d of %d" % [have, int(b["max"])]
+	if have > 0:
+		return o
+	for d in Story.DUOS:
+		var needs: Array = d["needs"]
+		if boons.has(d["id"]) or not needs.has(b["id"]):
+			continue
+		var other: String = needs[1] if needs[0] == b["id"] else needs[0]
+		if boons.has(other):
+			o["hint"] = "Pairs with %s  >  %s" % [boon_name(other), d["name"]]
+			o["pairs"] = true
+			break
+		if not o.has("hint"):
+			o["hint"] = "Half of %s, with %s" % [d["name"], boon_name(other)]
+	return o
+
+
+func boon_name(id: String) -> String:
+	for b in Story.BOONS:
+		if b["id"] == id:
+			return b["name"]
+	return id
+
+
+# --- Relics ---------------------------------------------------------------------
+
+## The relics Wren does not carry yet, in Story.RELICS order.
+func relics_unowned() -> Array:
+	var out: Array = []
+	for r in Story.RELICS:
+		var id: String = r["power"]
+		if not (spare_match if id == "match" else powers[id]):
+			out.append(r)
+	return out
+
+
+## A relic stand: up to three of Maren's tools that Wren does not carry, and
+## she takes one. Each answers a different trouble, and whatever she passes
+## over waits on a deeper stand, so by the fourth depth she holds them all
+## whichever order she chose. With nothing left, the stand is a kindling cache.
+func _offer_relics() -> void:
+	var left := relics_unowned()
+	if left.is_empty():
+		_offer_boons("A cache of kindling", "Maren left these on her way down. Take one.")
+		return
+	for i in range(left.size() - 1, 0, -1):
+		var j := rng.randi() % (i + 1)
+		var tmp = left[i]
+		left[i] = left[j]
+		left[j] = tmp
+	left = left.slice(0, 3)
+	var opts: Array = []
+	for r in left:
+		opts.append({"id": r["power"], "name": r["name"], "desc": r["card"], "tag": r["role"],
+			"icon": r["icon"], "col": Color(1.0, 0.85, 0.5)})
+	var sub := "She left these on the stand. Take one; the others wait deeper down."
+	if left.size() == 1:
+		sub = "The last of them. Take it."
+	_show_offer("relic", "Maren's tools", sub, opts, func(i): take_relic(left[i]["power"]))
+
+
+func take_relic(id: String) -> void:
+	var rel: Dictionary = {}
+	for r in Story.RELICS:
+		if r["power"] == id:
+			rel = r
+	grant_power(id)
+	var how: String = "" if rel["key"] == "" else "\n\n[ Press %s to use it. ]" % rel["key"]
+	if pad != null and how != "":
+		how = "\n\n[ Its rune now sits by your right thumb. ]"
+	hud.dialog([["RELIC  -  " + (rel["name"] as String).to_upper(), rel["text"] + how]])
 
 
 func apply_boon(id: String) -> void:
@@ -2373,6 +2584,28 @@ func apply_boon(id: String) -> void:
 			stats["orbit"] += 2
 			stats["mote_k"] = 1.5
 			_sync_motes()
+		# Bargains: the gain, then the price.
+		"burnwick":
+			stats["bolt_dmg"] *= 1.6
+			stats["oil_regen"] *= 0.5
+		"pact":
+			stats["ember_k"] = 1.5
+			stats["xp_mult"] += 0.5
+			# Gloams come below 35% of the flask, not 20% (they melt above 40%).
+			stats["gloam_k"] = 1.75
+		"lens":
+			stats["power"] *= 1.5
+			stats["power_cost"] *= 1.4
+		"leaden":
+			stats["dmg"] *= 1.45
+			stats["speed"] *= 0.85
+		"hollow":
+			max_hp = maxi(2, max_hp - 2)
+			hp = clampi(hp, 1, max_hp)
+			stats["crit"] += 0.25
+		"moth_cloak":
+			stats["dash_len"] = 1.5
+			stats["frail"] = 1
 	for d in Story.DUOS:
 		if d["id"] == id:
 			main.tally("duos")
@@ -2547,16 +2780,7 @@ func interact() -> void:
 			Sfx.play("power", -4.0)
 			fx.spark(pos + Vector2(0, -12), Color(1.0, 0.85, 0.45), 30, 90.0, 0.8, 2.0)
 			cine(4.2, 1.0, pos + Vector2(0, -8))
-			if depth > Story.RELICS.size():
-				# Past the last relic, the stand holds a cache of kindling instead.
-				_offer_boons("A cache of kindling", "Maren left these on her way down. Take one.")
-				return
-			var rel: Dictionary = Story.RELICS[depth - 1]
-			grant_power(rel["power"])
-			var how: String = "" if rel["key"] == "" else "\n\n[ Press %s to use it. ]" % rel["key"]
-			if pad != null and how != "":
-				how = "\n\n[ Its rune now sits by your right thumb. ]"
-			hud.dialog([["RELIC  -  " + (rel["name"] as String).to_upper(), rel["text"] + how]])
+			_offer_relics()
 		"stairs":
 			if sealed:
 				Sfx.play("thud", -8.0)
@@ -2726,10 +2950,15 @@ func grant_power(id: String) -> void:
 	pcd[id] = 0.0
 
 
+## What a power costs in oil; the Cracked Lens bargain raises it.
+func power_cost(id: String) -> float:
+	return Story.POWERS[id]["cost"] * stats["power_cost"]
+
+
 func _power_ready(id: String) -> bool:
 	if dead or not powers[id] or pcd[id] > 0.0:
 		return false
-	var cost: float = Story.POWERS[id]["cost"]
+	var cost: float = power_cost(id)
 	if oil < cost:
 		hud.float_text(ppos + Vector2(0, -20), "no oil", Color(1.0, 0.5, 0.3))
 		Sfx.play("ui", 0.0)
