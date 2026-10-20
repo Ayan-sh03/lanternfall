@@ -47,6 +47,8 @@ var float_c: Control
 var mini: TextureRect
 var mini_bg: Panel
 var depth_lbl: Label
+## Which way this run goes down (Story.MODES), small, under the depth.
+var mode_lbl: Label
 var sub_lbl: Label
 var prompt_lbl: Label
 var hint_lbl: Label
@@ -162,6 +164,10 @@ func _ready() -> void:
 	depth_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_place(depth_lbl, 0.5, 0.0, Vector2(0, 14), Vector2(600, 26))
 	hud_group.add_child(depth_lbl)
+	mode_lbl = _lbl("", 14, C_DIM, font, 3)
+	mode_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_place(mode_lbl, 0.5, 0.0, Vector2(0, 38), Vector2(600, 20))
+	hud_group.add_child(mode_lbl)
 
 	hint_lbl = _lbl("WASD  move        Mouse  aim\nLeft click  strike  (third strike is heavy)\nRight click  ember bolt        X / middle click  throw oil\nSpace  dash  (your last blows echo)        C  snuff the lamp\nE  interact        Esc  pause        Q / R / F  relic powers", 20, C_PARCH, font, 5)
 	_place(hint_lbl, 0.0, 1.0, Vector2(24, -18), Vector2(520, 156))
@@ -420,6 +426,13 @@ func set_map(tex: Texture2D, w: int, h: int) -> void:
 	var sz := Vector2(w * 3, h * 3)
 	_place(mini, 1.0, 0.0, Vector2(-20, 20), sz)
 	_place(mini_bg, 1.0, 0.0, Vector2(-16, 16), sz + Vector2(8, 8))
+
+
+func show_mode(id: String) -> void:
+	var m: Dictionary = Story.MODES.get(id, Story.MODES["pilgrim"])
+	mode_lbl.text = m["badge"]
+	var c: Color = m["col"]
+	mode_lbl.add_theme_color_override("font_color", Color(c.r, c.g, c.b, 0.75))
 
 
 func floor_card(a: String, b: String) -> void:
@@ -1103,16 +1116,32 @@ func show_death() -> void:
 	if main.nem_news != "":
 		vb.add_child(_wrapped(main.nem_news, 22, Color(1.0, 0.45, 0.35), 900.0, font_b))
 	else:
-		vb.add_child(_wrapped(Story.DEATH_LINES[randi() % Story.DEATH_LINES.size()], 20, C_DIM, 900.0, font_i))
+		var quotes: Array = Story.DESCENT_END if main.descent() else Story.DEATH_LINES
+		vb.add_child(_wrapped(quotes[randi() % quotes.size()], 20, C_DIM, 900.0, font_i))
 	vb.add_child(_wrapped(_stats_text(), 18, C_DIM, 900.0))
 	# Nothing earned is lost: say so.
 	var got: int = main.run_embers
-	var em := _lbl("%s%d embers wait for you in the town above." % [("+%d embers kept.   " % got) if got > 0 else "",
-		int(main.profile["embers"])], 22, C_EMBER, font)
-	em.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	vb.add_child(em)
-	vb.add_child(_spacer(8))
-	var btns: Array = [_btn("Wake at your last lamp", main.retry), _btn("Quit to title", main.to_title)]
+	var btns: Array = []
+	if main.descent():
+		# One wick: the run is over. Say how far it went, and what it left.
+		var best := int(main.profile["best"].get("depth_descent", 0))
+		var fd := clampi(int(main.fallen_depth), 1, Story.DEPTHS.size())
+		var dl := _lbl("Descent ended at Depth %s   -   embers kept: %d   -   best: Depth %s" % [Story.ROMAN[fd - 1], got,
+			Story.ROMAN[clampi(best, 1, Story.DEPTHS.size()) - 1]], 26, Story.MODES["descent"]["col"], font_b)
+		dl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		vb.add_child(dl)
+		var lost := _wrapped("The kindlings and relics went out with the wick. %d embers, and every lamp lit in town, wait above." % int(main.profile["embers"]),
+			20, C_EMBER, 900.0, font)
+		vb.add_child(lost)
+		vb.add_child(_spacer(8))
+		btns = [_btn("Back to town", main.to_town), _btn("Begin a new Descent", main.new_descent)]
+	else:
+		var em := _lbl("%s%d embers wait for you in the town above." % [("+%d embers kept.   " % got) if got > 0 else "",
+			int(main.profile["embers"])], 22, C_EMBER, font)
+		em.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		vb.add_child(em)
+		vb.add_child(_spacer(8))
+		btns = [_btn("Wake at your last lamp", main.retry), _btn("Quit to title", main.to_title)]
 	# After a few falls, offer the lamp's resolve; it can be put down again any time.
 	if int(main.profile["tally"].get("deaths", 0)) >= 3 or main.profile["resolve"]:
 		var rb := _btn("", Callable(), 620.0)
@@ -1427,6 +1456,7 @@ func _process(dt: float) -> void:
 	cap_box.modulate.a = clampf(cap_t * 3.0, 0.0, 1.0) if cap_a.text != "" else 0.0
 	cap_box.visible = cap_a.text != ""
 	depth_lbl.visible = not showcase
+	mode_lbl.visible = not showcase and depth_lbl.text != ""
 	hint_lbl.visible = not showcase and hint_t > 0.0 and modal == ""
 	mini.visible = not showcase
 	mini_bg.visible = not showcase

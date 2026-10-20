@@ -153,6 +153,9 @@ func ui_shots() -> void:
 	main.pick_new()
 	await w(1.0)
 	await shot("u1_slots")
+	main.pick_mode()
+	await w(1.0)
+	await shot("u1_modes")
 	main.hud._close_modal()
 	main.new_game(1)
 	await w(1.2)
@@ -170,6 +173,34 @@ func ui_shots() -> void:
 	main.hud.show_pause()
 	await w(0.4)
 	await shot("u4_pause")
+	# One wick: the badge on the way down, and the end of it.
+	main.hud._close_modal()
+	main.mode = "descent"
+	main.new_game(3, {}, true)
+	await w(5.0)
+	main.game.hud.card_t = 0.0
+	await shot("u5_descent_hud")
+	# A Descent's slot card, in slot 1 - only where a save tag keeps it apart
+	# from the player's own saves.
+	if main._slot_path(0) != "user://save_0.json":
+		main.game.save_game(-1)
+		var f := FileAccess.open(main._slot_path(0), FileAccess.WRITE)
+		f.store_string(JSON.stringify(main.read_save(9)))
+		f.close()
+		main.pick_load()
+		await w(1.0)
+		await shot("u5_descent_slot")
+		main.hud._close_modal()
+		main.delete_save(0)
+	main.game.bot = true
+	main.game.match_used = true
+	main.game.invuln = 0.0
+	main.game.hp = 1
+	main.game.hurt_player(2, main.game.ppos + Vector2(10, 0), 100.0, "brute")
+	main.bank(38)
+	await w(3.6)
+	await shot("u6_descent_death")
+	main.mode = "pilgrim"
 	main.delete_save(9)
 	get_tree().quit()
 
@@ -655,9 +686,162 @@ func progress_test() -> void:
 	br.st = 5.0
 	await w(0.3)
 	await shot("p_warning")
+	await ways_down_test()
 	print("PROG %s" % ("PASS" if pfails == 0 else "FAIL %d" % pfails))
 	main.delete_save(9)
 	get_tree().quit(1 if pfails > 0 else 0)
+
+
+## A fall that nothing catches: no spare match, no turned blow.
+func _fall(g) -> void:
+	g.match_used = true
+	g.invuln = 0.0
+	g.hp = 1
+	g.hurt_player(2, g.ppos + Vector2(10, 0), 100.0, "husk")
+	# Game time runs behind the clock on a slow frame, so wait for the screen itself.
+	var waited := 0.0
+	while main.hud.modal != "death" and waited < 12.0:
+		await w(0.2)
+		waited += 0.2
+	await w(0.3)
+
+
+func _modal_has(cls: String, text: String) -> bool:
+	if main.hud.modal_root == null:
+		return false
+	for n in main.hud.modal_root.find_children("*", cls, true, false):
+		if n.text.contains(text):
+			return true
+	return false
+
+
+func _press(text: String) -> bool:
+	for n in main.hud.modal_root.find_children("*", "Button", true, false):
+		if (n as Button).text == text:
+			(n as Button).pressed.emit()
+			return true
+	return false
+
+
+## The two ways down: a pilgrim wakes at the lamp, a Descent's fall is the end
+## of it, and each keeps its own records.
+func ways_down_test() -> void:
+	var pr: Dictionary = main.profile
+	main.hud._close_modal()
+	main.pick_mode()
+	await w(0.6)
+	pcheck(main.hud.modal == "choice" and main.hud.choice_n == 2, "a new slot asks which way down")
+	await shot("p_modes")
+	main.hud._close_modal()
+
+	# Pilgrimage: the fall is caught at the last lamp, build and all.
+	main.mode = "pilgrim"
+	main.delete_save(9)
+	main.new_game(1)
+	await w(2.0)
+	var g = main.game
+	g.bot = true
+	g.bot_manual = true
+	g.level = 4
+	g.apply_boon("edge")
+	var lamp := -1
+	var lamp_pos := Vector2.ZERO
+	for p in g.props:
+		if p["type"] == "lamp":
+			lamp = p["idx"]
+			lamp_pos = p["pos"]
+	g.save_game(lamp)
+	pcheck(main.mode_of(main.read_save(9)) == "pilgrim", "a pilgrimage's save says so")
+	await _fall(g)
+	pcheck(main.hud.modal == "death" and not main.read_save(9).is_empty() and _modal_has("Button", "Wake at your last lamp"),
+		"a pilgrim's fall keeps the slot and offers the lamp")
+	var dead_g = g
+	main.retry()
+	# Looked at the moment she wakes, before a foe on the floor can reach her.
+	var waited := 0.0
+	while (main.game == dead_g or main.game == null) and waited < 3.0:
+		await get_tree().process_frame
+		waited += get_process_delta_time()
+	await get_tree().process_frame
+	g = main.game
+	pcheck(g.level == 4 and g.boons.has("edge") and g.hp == g.max_hp and main.mode == "pilgrim", "the pilgrim wakes whole, with her build (level %d, %s, hp %d/%d)" % [g.level, g.boons, g.hp, g.max_hp])
+	pcheck(lamp < 0 or (g.ppos - lamp_pos).length() < 40.0, "and beside the lamp (%.0f away)" % (g.ppos - lamp_pos).length())
+
+	# Descent: embers burn brighter, and the way down is kept in the save.
+	main.mode = "descent"
+	main.delete_save(9)
+	main.new_game(1)
+	await w(2.0)
+	g = main.game
+	var e0 := int(pr["embers"])
+	main.bank(10)
+	pcheck(int(pr["embers"]) == e0 + 15, "on one wick embers burn half again as bright (+%d)" % (int(pr["embers"]) - e0))
+	g.level = 5
+	g.apply_boon("edge")
+	g.save_game(-1)
+	pcheck(main.mode_of(main.read_save(9)) == "descent" and int(main.read_save(9).get("run_embers", 0)) == 15, "a Descent's save says so, and counts its embers")
+	main.mode = "pilgrim"
+	main.load_slot(9)
+	await w(2.5)
+	g = main.game
+	pcheck(main.mode == "descent" and g.level == 5 and main.run_embers == 15, "a Descent loads as a Descent")
+	# Saves from before the choice were all pilgrimages.
+	var old: Dictionary = main.read_save(9)
+	old.erase("mode")
+	var f := FileAccess.open(main._slot_path(9), FileAccess.WRITE)
+	f.store_string(JSON.stringify(old))
+	f.close()
+	main.mode = "descent"
+	main.load_slot(9)
+	await w(2.5)
+	pcheck(main.mode == "pilgrim", "an old save with no way down loads as a pilgrimage")
+
+	# A Descent left mid-floor keeps its wounds; a fall ends it for good.
+	main.mode = "descent"
+	main.delete_save(9)
+	main.new_game(1)
+	await w(2.0)
+	g = main.game
+	g.bot = true
+	g.bot_manual = true
+	g.level = 5
+	g.apply_boon("edge")
+	g.hp = 3
+	main._keep_descent()
+	pcheck(int(main.read_save(9).get("hp", 0)) == 3 and int(main.read_save(9).get("level", 0)) == 5, "leaving a Descent mid-floor saves it as it stands")
+	var e1 := int(pr["embers"])
+	var lit: int = (pr["town"] as Array).size()
+	await _fall(g)
+	pcheck(main.hud.modal == "death" and main.read_save(9).is_empty(), "a Descent's fall clears its slot")
+	pcheck(int(pr["embers"]) >= e1 and (pr["town"] as Array).size() == lit, "but the embers and the town are kept")
+	pcheck(_modal_has("Label", "Descent ended at Depth I") and not _modal_has("Button", "Wake at your last lamp"),
+		"the death screen says where the Descent ended, and offers no lamp")
+	pcheck(int(pr["best"].get("depth_descent", 0)) >= 1 and int(pr["best"].get("depth_pilgrim", 0)) >= 1, "each way down keeps its own deepest depth")
+	await shot("p_descent_death")
+	pcheck(_press("Begin a new Descent"), "a new Descent can be begun from the death screen")
+	await w(2.5)
+	g = main.game
+	pcheck(g.depth == 1 and g.level == 1 and not g.boons.has("edge") and main.mode == "descent" and not g.dead,
+		"it starts at the top with nothing carried")
+
+	# Starting partway down is always a pilgrimage.
+	main.pending_depth = 2
+	main._start_depth_in_slot(9)
+	await w(2.5)
+	pcheck(main.mode == "pilgrim" and main.game.depth == 2, "depth select starts a pilgrimage")
+
+	# Down to the fourth depth and out again on one wick: deeds and records.
+	main.mode = "descent"
+	main.new_game(4)
+	await w(2.0)
+	pcheck(int(pr["best"].get("depth_descent", 0)) == 4 and (pr["feats"] as Array).has("descent4"), "the fourth depth on one wick is a record and a deed")
+	main.ending(0)
+	await w(1.0)
+	pcheck(int(pr["tally"].get("descent_wins", 0)) == 1 and (pr["feats"] as Array).has("descent_win") and main.read_save(9).is_empty(),
+		"a finished Descent is counted, and is a deed")
+	main._keep_descent()
+	pcheck(main.read_save(9).is_empty(), "and nothing writes its slot back")
+	main.mode = "pilgrim"
 
 
 var probe_on := false
