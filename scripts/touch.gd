@@ -11,7 +11,8 @@ const STICK_R := 74.0
 const C_STONE := Color(0.05, 0.04, 0.07, 0.6)
 const C_EDGE := Color(0.42, 0.33, 0.25, 0.75)
 const USE_ICONS := {"chest": "chest0", "lamp": "lamp1", "page": "page", "plaque": "plaque", "stairs": "stairs",
-	"cage": "cage", "relic": "relic"}
+	"cage": "cage", "relic": "relic", "shrine": "shrine", "cache": "cache", "hoard": "hoard0", "altar": "altar",
+	"vgate": "vgate"}
 
 var hud
 var game = null

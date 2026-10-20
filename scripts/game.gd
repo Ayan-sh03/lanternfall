@@ -11,6 +11,7 @@ const SurfS = preload("res://scripts/surfaces.gd")
 const EchoS = preload("res://scripts/echo.gd")
 const Nemesis = preload("res://scripts/nemesis.gd")
 const MothS = preload("res://scripts/moth.gd")
+const RoomsS = preload("res://scripts/rooms.gd")
 
 const TS := 16
 const AMBIENT := Color(0.14, 0.14, 0.23)
@@ -46,6 +47,10 @@ var mini_tex: ImageTexture
 var stairs_tile := Vector2i(-1, -1)
 var exit_room := -1
 var sealed := false
+## Set-aside rooms and the second stair (rooms.gd).
+var rooms = null
+## What the stair Wren came down by promised for this floor ("" for the usual one).
+var floor_route := ""
 
 # --- scene ---
 var map_root: Node2D
@@ -344,15 +349,23 @@ func load_floor(d: int, restore: Dictionary = {}) -> void:
 	# Each floor is grown from one seed, so a save only has to remember the seed
 	# to get the same floor back.
 	floor_seed = int(restore.get("seed", rng.randi()))
+	# The stair taken down is part of the floor's recipe, as the seed is.
+	if not restore.is_empty():
+		floor_route = str(restore.get("route", ""))
+	if rooms == null:
+		rooms = RoomsS.new()
+		rooms.g = self
+		add_child(rooms)
 	var grng := RandomNumberGenerator.new()
 	grng.seed = floor_seed
-	dungeon = Dungeon.generate(d, grng)
+	dungeon = Dungeon.generate(d, grng, floor_route)
 	W = dungeon["w"]
 	H = dungeon["h"]
 	tiles = dungeon["tiles"]
 	room_id = dungeon["room_id"]
 	exit_room = dungeon["exit_room"]
 	_carve_secrets()
+	rooms.setup(restore)
 	if moth == null and d > 0 and d < Story.DEPTHS.size():
 		_place_wild_moth()
 	map_theme = info["theme"]
@@ -406,6 +419,7 @@ func load_floor(d: int, restore: Dictionary = {}) -> void:
 		var sd: Dictionary = slist[i]
 		var e = spawn_enemy(sd["kind"], tile_center(sd["tile"]), sd["room"], sd.get("elite", false))
 		e.spawn_idx = i
+	rooms.after_load()
 	surf.grow(floor_seed)
 	_place_nemesis()
 
@@ -419,8 +433,9 @@ func load_floor(d: int, restore: Dictionary = {}) -> void:
 					fog_a[i] = 0.6
 					fog_img.set_pixel(i % W, int(i / float(W)), Color(FOGC.r, FOGC.g, FOGC.b, 0.6))
 					mini_img.set_pixel(i % W, int(i / float(W)), MINI_FLOOR if tiles[i] == 1 else MINI_WALL)
-			if stairs_tile.x >= 0 and seen[stairs_tile.y * W + stairs_tile.x] == 1:
-				mini_img.set_pixel(stairs_tile.x, stairs_tile.y, MINI_STAIRS)
+			for st in [stairs_tile, rooms.route_tile]:
+				if st.x >= 0 and seen[st.y * W + st.x] == 1:
+					mini_img.set_pixel(st.x, st.y, MINI_STAIRS)
 			fog_tex.update(fog_img)
 			mini_tex.update(mini_img)
 
@@ -445,6 +460,8 @@ func load_floor(d: int, restore: Dictionary = {}) -> void:
 		hud.floor_card(info["sub"], info["name"])
 		if restore.is_empty():
 			hud.say(info["line"], 5.0)
+	if restore.is_empty():
+		rooms.arrived()
 	Sfx.play_music(info["music"])
 	if d > 0:
 		main.reached(d)
@@ -470,7 +487,7 @@ func save_game(lamp_idx: int) -> void:
 	for p in props:
 		if p["done"] or p.has("read"):
 			done.append(p["idx"])
-	main.write_save({"v": 1, "depth": depth, "name": Story.DEPTHS[depth - 1]["name"], "seed": floor_seed,
+	main.write_save({"v": 1, "depth": depth, "name": Story.DEPTHS[depth - 1]["name"], "seed": floor_seed, "route": floor_route,
 		"lamp_idx": lamp_idx, "hp": hp, "max_hp": max_hp, "oil": oil, "max_oil": max_oil, "xp": xp,
 		"level": level, "xp_next": xp_next, "stats": stats.duplicate(), "boons": boons.duplicate(),
 		"powers": powers.duplicate(), "spare": spare_match, "match_used": match_used, "kills": kills,
@@ -580,6 +597,8 @@ func _restore_prop(p: Dictionary) -> void:
 			if p.has("light"):
 				lights.erase(p["light"])
 			p["node"].queue_free()
+		"shrine", "cache", "hoard", "altar", "vgate":
+			rooms.restore_prop(p)
 
 
 func _light_lamp(p: Dictionary) -> void:
@@ -705,8 +724,15 @@ func _add_prop(pd: Dictionary, idx: int = -1) -> void:
 			p["light"] = _light(node, Color(1.0, 0.8, 0.45), 0.9, 1.0, Vector2(0, -10))
 		"stairs":
 			s.texture = Art.tex["stairs"]
-			stairs_tile = pd["tile"]
+			if pd.has("route"):
+				# The second way down, and what it promises.
+				p["route"] = pd["route"]
+				rooms.route_tile = pd["tile"]
+			else:
+				stairs_tile = pd["tile"]
 			p["glow"] = _glow(node, Color(1.0, 0.15, 0.1, 0.7), 0.5, Vector2.ZERO)
+		"shrine", "cache", "hoard", "altar", "vgate", "sign", "mark":
+			rooms.add_prop(p, pd)
 		"moth":
 			s.texture = MothS.make_frames()[0]
 			s.material = Art.mat_unlit
@@ -725,7 +751,8 @@ func _add_prop(pd: Dictionary, idx: int = -1) -> void:
 			p["glow"] = orb
 			p["halo"] = _glow(node, Color(1.0, 0.55, 0.2, 0.5), 1.1, Vector2(0, -6))
 			p["light"] = _light(node, Color(1.0, 0.7, 0.4), 1.2, 1.6, Vector2(0, -6))
-	if type == "stairs":
+	# Stairs and door sigils lie on the floor.
+	if type == "stairs" or type == "mark":
 		map_root.add_child(node)
 	else:
 		ents.add_child(node)
@@ -885,8 +912,9 @@ func _update_fov() -> void:
 			x += dx
 			y += dy
 	if dirty:
-		if stairs_tile.x >= 0 and seen[stairs_tile.y * W + stairs_tile.x] == 1:
-			mini_img.set_pixel(stairs_tile.x, stairs_tile.y, MINI_STAIRS)
+		for st in [stairs_tile, rooms.route_tile]:
+			if st.x >= 0 and seen[st.y * W + st.x] == 1:
+				mini_img.set_pixel(st.x, st.y, MINI_STAIRS)
 		mini_tex.update(mini_img)
 
 
@@ -2408,6 +2436,7 @@ func _break_urn(p: Dictionary) -> void:
 
 
 func _update_props(dt: float) -> void:
+	rooms.tick(dt)
 	near_prop = null
 	var bd := 26.0
 	for p in props:
@@ -2437,15 +2466,17 @@ func _update_props(dt: float) -> void:
 				p["spr"].texture = MothS.make_frames()[int(t * 12.0) % 2]
 				p["spr"].flip_h = cos(t * 2.3) < 0.0
 			"stairs":
-				p["glow"].visible = sealed
+				p["glow"].visible = rooms.stair_sealed(p)
 				p["glow"].modulate.a = 0.55 + 0.2 * sin(t * 4.0)
+			"shrine", "altar", "sign", "mark":
+				rooms.animate(p, near)
 			"cage":
 				var pulse := 1.0 + 0.12 * sin(t * 2.2) + 0.05 * sin(t * 7.0)
 				p["glow"].scale = Vector2(0.32, 0.32) * pulse
 				p["halo"].modulate.a = 0.4 + 0.15 * sin(t * 2.2)
 				if near and rng.randf() < dt * 8.0:
 					fx.spark(pos + Vector2(0, -6), Color(1.0, 0.8, 0.4, 0.9), 1, 14.0, 0.9, 1.5, -18.0)
-		if (p["done"] and p["type"] != "lamp") or not PROMPTS.has(p["type"]):
+		if (p["done"] and p["type"] != "lamp") or not (PROMPTS.has(p["type"]) or RoomsS.PROMPTS.has(p["type"])):
 			continue
 		if p["type"] == "cage" and not boss_dead:
 			continue
@@ -2456,8 +2487,12 @@ func _update_props(dt: float) -> void:
 
 
 func prompt_for(p: Dictionary) -> String:
-	if p["type"] == "stairs" and sealed:
+	if p["type"] == "stairs" and rooms.stair_sealed(p):
 		return "Sealed"
+	if p["type"] == "stairs" and p.has("route"):
+		return "Descend:  " + Story.ROUTES.get(p["route"], {"name": "another way"})["name"]
+	if RoomsS.PROMPTS.has(p["type"]):
+		return rooms.prompt_for(p)
 	if p["type"] == "lamp" and p["done"]:
 		return "Rest at the lamp  (save)"
 	return PROMPTS[p["type"]]
@@ -2558,13 +2593,19 @@ func interact() -> void:
 				how = "\n\n[ Its rune now sits by your right thumb. ]"
 			hud.dialog([["RELIC  -  " + (rel["name"] as String).to_upper(), rel["text"] + how]])
 		"stairs":
-			if sealed:
+			if rooms.stair_sealed(p):
 				Sfx.play("thud", -8.0)
 				hud.say("Sealed. Something in this room still holds it shut.", 3.0, hud.C_EMBER)
 			else:
 				Sfx.play("stairs")
 				cine(4.6, 1.5, pos)
-				hud.fade_through(func(): load_floor(depth + 1))
+				# Which stair it was shapes the floor below.
+				var way: String = p.get("route", "")
+				hud.fade_through(func():
+					floor_route = way
+					load_floor(depth + 1))
+		"shrine", "cache", "hoard", "altar", "vgate":
+			rooms.interact(p)
 		"cage":
 			Sfx.play("ember")
 			hud.show_choice("Your hands now, Lampwright", "The latch is small and plain.", Story.CHOICE,

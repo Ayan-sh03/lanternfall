@@ -589,6 +589,8 @@ func _build_map() -> void:
 	var ah := float(atlas.get_height())
 	var W: int = game.W
 	var H: int = game.H
+	# A floor can have a second way down.
+	var route_tile: Vector2i = game.rooms.route_tile if game.rooms != null else Vector2i(-1, -1)
 	for cy in range(0, H, CHUNK):
 		for cx in range(0, W, CHUNK):
 			var st := SurfaceTool.new()
@@ -596,7 +598,7 @@ func _build_map() -> void:
 			var any := false
 			for y in range(cy, mini(cy + CHUNK, H)):
 				for x in range(cx, mini(cx + CHUNK, W)):
-					if Vector2i(x, y) == game.stairs_tile:
+					if Vector2i(x, y) == game.stairs_tile or Vector2i(x, y) == route_tile:
 						_stairwell(st, x, y, aw, ah)
 						any = true
 					elif _tile(x, y) == 1:
