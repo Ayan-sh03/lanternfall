@@ -275,4 +275,25 @@ const FEATS := [
 	{"id": "flit", "name": "A Friend in the Dark", "desc": "Feed a lamp moth, and keep it.", "stat": "flits", "goal": 1, "reward": 20},
 	{"id": "hollow", "name": "Hollow Walls", "desc": "Break into three hidden rooms.", "stat": "secrets", "goal": 3, "reward": 40},
 	{"id": "lamps", "name": "The Street Remembers", "desc": "Light every lamp in town.", "stat": "town", "goal": 9, "reward": 0},
+	{"id": "descent4", "name": "No Way Back", "desc": "Reach the fourth depth on one wick.", "stat": "descent_depth", "goal": 4, "reward": 60},
+	{"id": "descent_win", "name": "One Wick", "desc": "Finish a Descent.", "stat": "descent_wins", "goal": 1, "reward": 250},
+]
+
+
+# --- Ways down -------------------------------------------------------------------
+
+## The two ways to go down, chosen when a slot is started. A Pilgrimage wakes
+## at the last lit lamp; a Descent has one wick, and a fall ends it.
+const MODES := {
+	"pilgrim": {"name": "Pilgrimage", "badge": "PILGRIMAGE", "icon": "lamp1", "col": Color(0.6, 0.9, 0.94),
+		"desc": "Every lamp you light keeps you.\n\nFall, and you wake beside the last one with everything you carried."},
+	"descent": {"name": "Descent", "badge": "DESCENT  -  ONE WICK", "icon": "i_flame", "col": Color(1.0, 0.45, 0.35),
+		"desc": "One wick, all the way down.\n\nFall, and all you carried is lost. Embers burn half again as bright."},
+}
+
+## Said on the death screen when a Descent ends, under the tally.
+const DESCENT_END := [
+	"\"Nobody goes down twice the same way. Go down again.\"  - Maren",
+	"\"The wick's spent. The lamp isn't.\"  - Maren",
+	"\"Count what you learned, not what you lost.\"  - Maren",
 ]

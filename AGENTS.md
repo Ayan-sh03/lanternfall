@@ -42,7 +42,7 @@ The 2D world is drawn into a small `SubViewport` at one pixel per art pixel, the
 - Never call `texture.get_image()` at runtime: on GL Compatibility it reads back from the GPU and stalls 20-25 ms. Use `Art.image_of(tex)`, which returns the CPU image the art was built from. (Only the test harness and `--icons` do readbacks.)
 - Do not create a `ShaderMaterial` per object for one-off effects; share them (death ghosts use `Art.ghost_mat`). Enemies still own one material each for the hit flash.
 - Avoid per-frame allocations in `_tick`, `enemy.gd` and `fx.gd`. Keep work off the first-kill and first-spawn path (build or cache things when the floor loads).
-- Saves go through `main.gd`; the test harness uses slot 9 and deletes it.
+- Saves go through `main.gd`; the test harness uses slot 9 and deletes it. Each save carries `mode` (`main.mode`: `pilgrim` wakes at the last lamp, `descent` is permadeath and its slot is deleted on death; a save without it is a pilgrimage). Tests run as pilgrims unless they set `main.mode` first.
 
 ## Testing
 
