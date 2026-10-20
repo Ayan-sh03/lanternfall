@@ -89,6 +89,23 @@ var bg_c: Control = null
 var modal_t0 := 0.0
 var embers: Array = []
 
+## A lesson on the screen (see game.teach): the key or stone, its name, one line.
+const LESSON_DUR := 7.0
+var lesson_box: HBoxContainer
+var lesson_glyph: Control
+var lesson_name: Label
+var lesson_text: Label
+var lesson_cur := {}
+var lesson_t := -9.0
+## Recordings and the showcase stay clean of lessons.
+var lesson_quiet := false
+var key_sb: StyleBoxTexture
+## The bestiary: which page is open, and where Back goes.
+var codex_page := 0
+var codex_back := Callable()
+## Shadows of the foes not yet met, made once from the sprites' own pixels.
+var sil_cache := {}
+
 
 func _ready() -> void:
 	layer = 10
@@ -195,6 +212,43 @@ func _ready() -> void:
 		# No power bar along the bottom on a phone, and thumbs on either side.
 		_place(sub_lbl, 0.5, 1.0, Vector2(-20, -26), Vector2(620, 150))
 	hud_group.add_child(sub_lbl)
+
+	# A lesson, high in the middle (below the phone's control notes, which sit at the top there).
+	var args := OS.get_cmdline_user_args()
+	lesson_quiet = args.has("--showcase") or args.has("--showreel") or args.has("--wildreel")
+	key_sb = StyleBoxTexture.new()
+	key_sb.texture = Art.tex["ui_key"]
+	key_sb.set_texture_margin_all(12)
+	lesson_box = HBoxContainer.new()
+	lesson_box.alignment = BoxContainer.ALIGNMENT_CENTER
+	lesson_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_place(lesson_box, 0.5, 0.0, Vector2(0, 190 if touch else 104), Vector2(1000, 120))
+	lesson_box.visible = false
+	hud_group.add_child(lesson_box)
+	var lp := PanelContainer.new()
+	lp.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	lp.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	lp.add_theme_stylebox_override("panel", _frame_sb("ui_panel", 26))
+	lesson_box.add_child(lp)
+	var lh := HBoxContainer.new()
+	lh.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	lh.add_theme_constant_override("separation", 18)
+	lp.add_child(lh)
+	lesson_glyph = Control.new()
+	lesson_glyph.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	lesson_glyph.custom_minimum_size = Vector2(84, 52)
+	lesson_glyph.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	lesson_glyph.draw.connect(func(): _draw_glyph(lesson_glyph, Rect2(Vector2.ZERO, lesson_glyph.size), lesson_cur, true))
+	lh.add_child(lesson_glyph)
+	var lv := VBoxContainer.new()
+	lv.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	lv.add_theme_constant_override("separation", 0)
+	lh.add_child(lv)
+	lesson_name = _lbl("", 20, C_EMBER, _spaced(font, 3))
+	lv.add_child(lesson_name)
+	lesson_text = _lbl("", 30, C_PARCH, font)
+	lesson_text.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	lv.add_child(lesson_text)
 
 	var cc := CenterContainer.new()
 	_full(cc)
@@ -537,6 +591,29 @@ func say(text: String, dur: float = 4.5, col: Color = C_TEAL) -> void:
 func say_now(text: String, dur: float = 4.5, col: Color = C_TEAL) -> void:
 	say_q.push_front([text, dur, col])
 	sub_t = minf(sub_t, 0.2)
+
+
+## Shows one of Story.LESSONS for a few seconds. It never waits for input.
+func lesson(id: String) -> void:
+	for l in Story.LESSONS:
+		if l["id"] == id:
+			lesson_cur = l
+	if lesson_cur.is_empty() or lesson_cur["id"] != id:
+		return
+	lesson_name.text = (lesson_cur["name"] as String).to_upper()
+	lesson_text.text = lesson_cur["hint"]
+	# As wide as the line needs, up to a point; past that it wraps.
+	var w := font.get_string_size(lesson_text.text, HORIZONTAL_ALIGNMENT_LEFT, -1, 30).x
+	lesson_text.custom_minimum_size.x = minf(w + 4.0, 620.0)
+	lesson_t = LESSON_DUR
+	lesson_glyph.queue_redraw()
+	if not lesson_quiet:
+		Sfx.play("page", -12.0)
+
+
+## A lesson is showing, or has only just gone (so two never crowd each other).
+func lesson_busy() -> bool:
+	return lesson_t > -1.5
 
 
 func float_text(wpos: Vector2, text: String, col: Color) -> void:
@@ -988,7 +1065,14 @@ func show_pause() -> void:
 	vb.add_child(_spacer(12))
 	vb.add_child(_wrapped("Your descent is saved at every lamp you light and every depth you reach.", 20, C_DIM, 900.0))
 	vb.add_child(_options_row())
-	for b in [_btn("Resume", _close_modal), _btn("Quit to title", main.to_title),
+	# Resume and the bestiary share a row, to keep the column short.
+	var top := HBoxContainer.new()
+	top.alignment = BoxContainer.ALIGNMENT_CENTER
+	top.add_theme_constant_override("separation", 12)
+	top.add_child(_btn("Resume", _close_modal, 260.0))
+	top.add_child(_btn("Bestiary", show_codex.bind(show_pause), 260.0))
+	vb.add_child(top)
+	for b in [_btn("Quit to title", main.to_title),
 			_btn("Quit game" if touch else "Quit to desktop", main.quit_game)]:
 		var cc := CenterContainer.new()
 		cc.add_child(b)
@@ -1191,6 +1275,7 @@ func show_town() -> void:
 	row.alignment = BoxContainer.ALIGNMENT_CENTER
 	row.add_theme_constant_override("separation", 14)
 	row.add_child(_btn("Deeds", show_deeds, 260.0))
+	row.add_child(_btn("Bestiary", show_codex.bind(show_town), 260.0))
 	row.add_child(_btn("Back", show_title, 260.0))
 	vb.add_child(row)
 
@@ -1291,6 +1376,221 @@ func show_deeds() -> void:
 	vb.add_child(row)
 
 
+# --- The bestiary ------------------------------------------------------------------
+
+## A page for each kind of foe (a shadow and "???" until it is met) and a last
+## page of what the lamp has taught. Back returns to wherever it was opened
+## from: the pause screen or the town. Mouse, keys and taps all turn the pages.
+func show_codex(back: Callable = Callable(), page: int = 0) -> void:
+	if back.is_valid():
+		codex_back = back
+	var pages: int = Story.FOES.size() + 1
+	codex_page = posmod(page, pages)
+	var vb := _modal("codex", Color(0.0, 0.0, 0.02, 0.88), "" if game != null else "dark")
+	vb.add_theme_constant_override("separation", 8)
+	var seen: Array = main.profile["seen"]
+	var met := 0
+	for f in Story.FOES:
+		if seen.has(f["kind"]):
+			met += 1
+	var tl := _lbl("BESTIARY", 40, C_EMBER, _spaced(font_t, 6), 8)
+	tl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vb.add_child(tl)
+	var sub := _lbl("%d of %d kinds met" % [met, Story.FOES.size()], 20, C_DIM, font)
+	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vb.add_child(sub)
+	var row := HBoxContainer.new()
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	row.add_theme_constant_override("separation", 16)
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	vb.add_child(row)
+	var list := VBoxContainer.new()
+	list.add_theme_constant_override("separation", 5)
+	list.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_child(list)
+	for i in pages:
+		var text := "Lamp lore"
+		if i < Story.FOES.size():
+			var f: Dictionary = Story.FOES[i]
+			text = f["name"] if seen.has(f["kind"]) else "? ? ?"
+		var b := _codex_btn(text, _codex_turn.bind(i), 250.0)
+		if i == codex_page:
+			b.add_theme_stylebox_override("normal", _frame_sb("ui_btn_hot", 6))
+			b.add_theme_color_override("font_color", C_EMBER)
+		list.add_child(b)
+	var panel := PanelContainer.new()
+	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	panel.add_theme_stylebox_override("panel", _frame_sb("ui_panel", 24))
+	panel.custom_minimum_size = Vector2(860, 400)
+	if codex_page < Story.FOES.size():
+		var f: Dictionary = Story.FOES[codex_page]
+		panel.add_child(_foe_page(f, seen.has(f["kind"])))
+	else:
+		panel.add_child(_lore_page())
+	row.add_child(panel)
+	var foot := HBoxContainer.new()
+	foot.alignment = BoxContainer.ALIGNMENT_CENTER
+	foot.add_theme_constant_override("separation", 24)
+	foot.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	if not touch:
+		foot.add_child(_lbl("Arrow keys turn the page      Esc closes", 20, C_DIM, font))
+	foot.add_child(_codex_btn("Back", close_codex, 240.0))
+	vb.add_child(foot)
+
+
+## The bestiary's buttons are slimmer than the menus', so it all fits a short screen.
+func _codex_btn(text: String, cb: Callable, w: float) -> Button:
+	var b := _btn(text, cb, w)
+	b.custom_minimum_size.y = 42
+	b.add_theme_font_size_override("font_size", 20)
+	for st in [["normal", "ui_btn"], ["hover", "ui_btn_hot"], ["pressed", "ui_btn_down"]]:
+		b.add_theme_stylebox_override(st[0], _frame_sb(st[1], 6))
+	return b
+
+
+func _codex_turn(i: int) -> void:
+	if modal != "codex":
+		return
+	Sfx.play("page", -10.0)
+	show_codex(Callable(), i)
+
+
+func close_codex() -> void:
+	var back := codex_back
+	codex_back = Callable()
+	if back.is_valid():
+		back.call()
+	else:
+		_close_modal()
+
+
+func _foe_page(f: Dictionary, known: bool) -> Control:
+	var hb := HBoxContainer.new()
+	hb.add_theme_constant_override("separation", 26)
+	hb.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var niche := PanelContainer.new()
+	niche.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	niche.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	var nsb := StyleBoxTexture.new()
+	nsb.texture = Art.tex["ui_niche"]
+	nsb.set_texture_margin_all(9)
+	nsb.set_content_margin_all(14)
+	niche.add_theme_stylebox_override("panel", nsb)
+	var holder := Control.new()
+	holder.custom_minimum_size = Vector2(200, 200)
+	holder.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	niche.add_child(holder)
+	var id: String = f["icon"]
+	var layers: Array = [Art.tex[id] if known else _silhouette(id)]
+	if known and Art.tex.has(id + "_e"):
+		layers.append(Art.tex[id + "_e"])
+	for i in layers.size():
+		var tr := TextureRect.new()
+		tr.texture = layers[i]
+		tr.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		tr.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		tr.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+		tr.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_full(tr)
+		# A gloam is a keeper's shape swallowed by the dark, all but its eyes.
+		if f["kind"] == "gloam" and i == 0 and known:
+			tr.modulate = Color(0.24, 0.18, 0.4)
+		holder.add_child(tr)
+	hb.add_child(niche)
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 8)
+	v.alignment = BoxContainer.ALIGNMENT_CENTER
+	v.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	v.add_child(_lbl(f["name"] if known else "? ? ?", 40, C_EMBER if known else C_DIM, font_t, 6))
+	v.add_child(_lbl(f["where"], 20, C_DIM, font))
+	var rule := TextureRect.new()
+	rule.texture = Art.tex["ui_rule"]
+	rule.modulate = Color(C_EMBER.r, C_EMBER.g, C_EMBER.b, 0.8)
+	rule.stretch_mode = TextureRect.STRETCH_KEEP
+	rule.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	v.add_child(rule)
+	var lore := _wrapped(f["lore"] if known else Story.FOE_UNMET, 20, C_PARCH if known else C_DIM, 540.0)
+	lore.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	v.add_child(lore)
+	if known:
+		v.add_child(_spacer(4))
+		v.add_child(_lbl("HOW TO MEET IT", 20, C_EMBER, _spaced(font, 3)))
+		var tip := _wrapped(f["tip"], 20, C_TEAL, 540.0)
+		tip.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+		v.add_child(tip)
+	hb.add_child(v)
+	return hb
+
+
+## Every control the lamp has taught, with its key (or stone, on a phone).
+## The plain moves are always there; the rest stay dark until learnt.
+func _lore_page() -> Control:
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 6)
+	v.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	v.add_child(_lbl("LAMP LORE   -   what the dark has taught you", 20, C_EMBER, _spaced(font, 2)))
+	var grid := GridContainer.new()
+	grid.columns = 3
+	grid.add_theme_constant_override("h_separation", 14)
+	grid.add_theme_constant_override("v_separation", 0)
+	grid.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	v.add_child(grid)
+	var rows: Array = Story.BASICS + Story.LESSONS
+	for l in rows:
+		var lit: bool = not l.has("id") or main.knows(l["id"])
+		var g := Control.new()
+		g.custom_minimum_size = Vector2(80, 28)
+		g.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		g.draw.connect(func(): _draw_glyph(g, Rect2(Vector2.ZERO, g.size), l, lit))
+		grid.add_child(g)
+		var n := _lbl(l["name"], 20, C_PARCH if lit else C_DIM, font)
+		n.custom_minimum_size.x = 150
+		grid.add_child(n)
+		grid.add_child(_lbl(l["lore"] if lit else "Not yet learnt.", 20, C_TEAL if lit else Color(0.4, 0.37, 0.35), font))
+	return v
+
+
+## The key to press, as a key cap; on a phone, the stone to touch.
+func _draw_glyph(c: Control, r: Rect2, l: Dictionary, lit: bool) -> void:
+	if l.is_empty():
+		return
+	var mid := r.get_center()
+	if touch:
+		var rad := minf(r.size.x, r.size.y) * 0.5 - 1.0
+		var edge := C_EMBER if lit else C_DIM
+		c.draw_circle(mid, rad, Color(0.05, 0.04, 0.07, 0.9))
+		c.draw_arc(mid, rad, 0.0, TAU, 28, Color(edge.r, edge.g, edge.b, 0.85), 2.0)
+		var k := rad / 30.0
+		c.draw_set_transform(mid, 0.0, Vector2(k, k))
+		_draw_icon(c, l["icon"], Vector2.ZERO, lit)
+		c.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+		return
+	var key: String = l["key"]
+	var kw := font.get_string_size(key, HORIZONTAL_ALIGNMENT_LEFT, -1, 20).x
+	var h := minf(r.size.y, 40.0)
+	var w := maxf(h, kw + 22.0)
+	var kr := Rect2(mid - Vector2(w, h) * 0.5, Vector2(w, h))
+	c.draw_style_box(key_sb, kr)
+	c.draw_string(font, Vector2(kr.position.x + (w - kw) * 0.5, kr.position.y + h * 0.5 + 4.0), key,
+		HORIZONTAL_ALIGNMENT_LEFT, -1, 20, C_PARCH if lit else C_DIM)
+
+
+## A foe not yet met, as a flat shadow of its own shape.
+func _silhouette(id: String) -> Texture2D:
+	if sil_cache.has(id):
+		return sil_cache[id]
+	var src: Image = Art.image_of(Art.tex[id])
+	var img := Image.create(src.get_width(), src.get_height(), false, Image.FORMAT_RGBA8)
+	for y in src.get_height():
+		for x in src.get_width():
+			if src.get_pixel(x, y).a > 0.5:
+				img.set_pixel(x, y, Color(0.17, 0.15, 0.21))
+	var t := ImageTexture.create_from_image(img)
+	sil_cache[id] = t
+	return t
+
+
 func show_end(kind: int) -> void:
 	var vb := _modal("end", Color.BLACK, "dawn" if kind == 1 else "dark")
 	var a := _lbl("LANTERNFALL", 24, C_DIM, _spaced(font, 8))
@@ -1333,6 +1633,21 @@ func _input(ev: InputEvent) -> void:
 			get_viewport().set_input_as_handled()
 			_close_modal()
 			return
+		if modal == "codex":
+			var turn := 0
+			match k:
+				KEY_ESCAPE, KEY_P, KEY_BACKSPACE:
+					get_viewport().set_input_as_handled()
+					close_codex()
+					return
+				KEY_LEFT, KEY_A, KEY_UP, KEY_W:
+					turn = -1
+				KEY_RIGHT, KEY_D, KEY_DOWN, KEY_S:
+					turn = 1
+			if turn != 0:
+				get_viewport().set_input_as_handled()
+				_codex_turn(codex_page + turn)
+				return
 		press = k == KEY_SPACE or k == KEY_ENTER or k == KEY_KP_ENTER or k == KEY_E
 	elif ev is InputEventMouseButton and ev.pressed and ev.button_index == MOUSE_BUTTON_LEFT:
 		press = true
@@ -1443,6 +1758,12 @@ func _process(dt: float) -> void:
 		sub_lbl.modulate.a = 0.0
 	# Under a full-screen choice or the death screen, in-world lines only clutter.
 	sub_lbl.visible = sub_lbl.modulate.a > 0.0 and modal == ""
+	# A lesson only counts down while it can be read.
+	if modal == "":
+		lesson_t -= dt
+	var la := clampf(minf(lesson_t * 1.5, (LESSON_DUR - lesson_t) * 5.0), 0.0, 1.0)
+	lesson_box.modulate.a = la
+	lesson_box.visible = la > 0.0 and modal == "" and not lesson_quiet and not game.dead
 
 	if card_t > 0.0:
 		card_t -= dt

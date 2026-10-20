@@ -36,7 +36,9 @@ var profile := {"max_depth": 1, "endings": [false, false], "sound": true, "hapti
 	# whether the lamp's resolve (an optional easing) is accepted.
 	"embers": 0, "town": [], "tally": {}, "feats": [], "best": {}, "resolve": false,
 	# The foe that put Wren out and earned a name for it (see nemesis.gd); empty if none.
-	"nemesis": {}}
+	"nemesis": {},
+	# Lessons the lamp has taught (Story.LESSONS ids) and kinds of foe met, for the bestiary.
+	"taught": [], "seen": []}
 ## What last put Wren out, as an entry in Story.CAUSES (empty if nothing yet).
 var last_cause := ""
 ## Embers earned since the run (or the life) began, for the death screen.
@@ -135,6 +137,8 @@ func _notification(what: int) -> void:
 		# The phone's back gesture pauses, and un-pauses.
 		if hud.modal == "pause":
 			hud._close_modal()
+		elif hud.modal == "codex":
+			hud.close_codex()
 		elif playing:
 			hud.show_pause()
 	elif what == NOTIFICATION_APPLICATION_PAUSED and touch and playing:
@@ -278,7 +282,7 @@ func _load_profile() -> void:
 			if data.has(k):
 				profile[k] = bool(data[k])
 		profile["embers"] = maxi(0, int(data.get("embers", 0)))
-		for k in ["town", "feats"]:
+		for k in ["town", "feats", "taught", "seen"]:
 			var a = data.get(k, [])
 			profile[k] = (a as Array).duplicate() if a is Array else []
 		for k in ["tally", "best"]:
@@ -358,6 +362,26 @@ func tally(stat: String, n: int = 1) -> void:
 	profile["tally"][stat] = int(profile["tally"].get(stat, 0)) + n
 	profile_dirty = true
 	_check_feats()
+
+
+## Whether a lesson has been taught on this profile (see game.teach).
+func knows(id: String) -> bool:
+	return (profile["taught"] as Array).has(id)
+
+
+func learn(id: String) -> void:
+	if not knows(id):
+		profile["taught"].append(id)
+		profile_dirty = true
+
+
+## A kind of foe met, for the bestiary. The scraps of an Ink Maw are an Ink Maw.
+func saw(kind: String) -> void:
+	if kind == "slimelet":
+		kind = "slime"
+	if not (profile["seen"] as Array).has(kind):
+		profile["seen"].append(kind)
+		profile_dirty = true
 
 
 func feat_progress(f: Dictionary) -> int:

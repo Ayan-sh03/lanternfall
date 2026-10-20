@@ -55,6 +55,81 @@ const BESTIARY := [
 	{"kind": "wisp", "name": "Cinder Skull", "desc": "Rushes in and bursts. Kill it first or get clear."},
 ]
 
+## The bestiary's pages, in the order the depths bring them. "icon" is the
+## sprite shown; "where" is said even of a foe not yet met, as a warning.
+const FOES := [
+	{"kind": "husk", "name": "Hollow Keeper", "icon": "husk_idle", "where": "The Lamp Cellars, and every depth below",
+		"lore": "Keepers who tended the Lantern, buried in their robes. Something down here taught them to stand again. They still remember the swing of a lamp-hook.",
+		"tip": "It leans back before it lunges. Step aside, or strike as it comes and the blow breaks on you."},
+	{"kind": "moth", "name": "Gloam Bat", "icon": "moth0", "where": "The Lamp Cellars, and below",
+		"lore": "They roost in the cold flues and hunt by the warmth of a lamp. Small, quick, and never full.",
+		"tip": "It bites, then wheels away. Swing as it turns back in; a sweep catches it mid-turn."},
+	{"kind": "cantor", "name": "Choir Cantor", "icon": "cantor_idle", "where": "The Buried Choir, and below",
+		"lore": "The choir still sings the one note the Lantern hums. Sung hard enough, the note comes loose and flies.",
+		"tip": "It keeps its distance and throws hexes. Strike a hex as it reaches you and it flies back."},
+	{"kind": "slime", "name": "Ink Maw", "icon": "slime0", "where": "The Drowned Archive, and below",
+		"lore": "Three hundred years of ledgers, drowned. The ink got up and walked. It is still trying to remember what it said.",
+		"tip": "It splits in two when it dies. Back away from the pieces; one sweep clears them."},
+	{"kind": "brute", "name": "Bellringer", "icon": "brute_idle", "where": "The Drowned Archive, and below",
+		"lore": "A bell-warden still in harness. It tolls once before it charges, and it stops for nothing but stone.",
+		"tip": "Put a wall behind you and step aside at the bell. Strike it as it comes and it stops dead."},
+	{"kind": "wisp", "name": "Cinder Skull", "icon": "wisp0", "where": "The Cinder Roots, and below",
+		"lore": "A skull packed with live coals from the roots. It wants to be close to you, and then it wants to be nowhere.",
+		"tip": "It rushes in and bursts. Bolt it from afar, or dash clear before it goes."},
+	{"kind": "gloam", "name": "Gloam", "icon": "husk_idle", "where": "Wherever the lamp burns low",
+		"lore": "A shade in a keeper's shape. It is not a thing that lives in the dark. It is the dark, come close.",
+		"tip": "It comes when the oil runs low, or when the lamp stays hooded. Fill the flask and it comes apart; a flare unmakes it."},
+	{"kind": "warden", "name": "The Hollow Warden", "icon": "warden_idle", "where": "The Heartforge",
+		"lore": "The cage must have its warden, the founders wrote. The forge took the best lampwright Vesper ever had.",
+		"tip": "She signals every blow, and no parry breaks her guard. Watch her hands, not her eyes."},
+]
+
+## Said on the bestiary page of a foe not yet met.
+const FOE_UNMET := "Not yet met. Something down there has no name in these pages, yet."
+
+## What the lamp teaches, each the first time its moment comes (game.teach).
+## "key" is the keyboard glyph and "icon" the stone on a phone (hud._draw_icon);
+## "hint" is said once, in play, and "lore" stays on the Lamp Lore page.
+const LESSONS := [
+	{"id": "parry", "name": "Parry", "key": "LMB", "icon": "strike",
+		"hint": "Strike as it lunges, and the blow breaks on you.",
+		"lore": "Strike a foe mid-lunge or mid-charge. It staggers."},
+	{"id": "reflect", "name": "Return a hex", "key": "LMB", "icon": "strike",
+		"hint": "Swing at a hex as it reaches you. It flies back.",
+		"lore": "A struck hex flies back, hotter, at its singer."},
+	{"id": "snuff", "name": "Hood the lamp", "key": "C", "icon": "snuff",
+		"hint": "Oil running low. Hood the lamp: it fills three times as fast, and foes lose you.",
+		"lore": "Oil fills three times as fast. Foes lose you."},
+	{"id": "dark", "name": "From the dark", "key": "C", "icon": "snuff",
+		"hint": "Unseen, a strike lands twice as hard. Uncover the lamp to flare.",
+		"lore": "Unseen blows land twice as hard. Uncover to flare."},
+	{"id": "flask", "name": "Oil flask", "key": "X", "icon": "flask",
+		"hint": "Throw oil under them. A bolt, or any flame, sets it burning.",
+		"lore": "Pools oil. Any flame sets it burning, you too."},
+	{"id": "echo", "name": "Echo", "key": "SPACE", "icon": "dash",
+		"hint": "Dash right after a flurry, and your last blows happen again.",
+		"lore": "Dash after a flurry; your last blows come again."},
+	{"id": "hollow", "name": "Hollow walls", "key": "LMB", "icon": "strike",
+		"hint": "A draught through the stone. Strike the wall, or bolt it.",
+		"lore": "Listen for a draught. Strike the wall to break in."},
+	{"id": "nova", "name": "Flare Nova", "key": "Q", "icon": "nova",
+		"hint": "Flare Nova: a ring of fire that throws them back. It costs oil.",
+		"lore": "A ring of fire for when they crowd you."},
+	{"id": "spark", "name": "Storm Spark", "key": "R", "icon": "spark",
+		"hint": "Storm Spark: lightning that leaps through the pack. It costs oil.",
+		"lore": "Lightning that leaps from foe to foe."},
+	{"id": "ward", "name": "Hearth Ward", "key": "F", "icon": "ward",
+		"hint": "Hearth Ward: set down a circle of hearth-light. Stand in it.",
+		"lore": "A circle that slows and burns them, and fills the flask."},
+]
+
+## Always on the Lamp Lore page, above what has been taught.
+const BASICS := [
+	{"name": "Strike", "key": "LMB", "icon": "strike", "lore": "Three in a row; the third is heavy."},
+	{"name": "Ember bolt", "key": "RMB", "icon": "bolt", "lore": "Costs oil. Lights the oil and webs it crosses."},
+	{"name": "Dash", "key": "SPACE", "icon": "dash", "lore": "A breath where nothing can touch you."},
+]
+
 const PAGES := [
 	["MAREN'S JOURNAL  -  DAY 1", "The cellars are as I left them, save for the cold.\n\nThe oil in the reservoirs hasn't run dry. It's full to the brim. The Lantern isn't starving.\n\nSo why is it dying?"],
 	["MAREN'S JOURNAL  -  DAY 3", "Found the old choir. Three hundred years of lampwrights are buried here, and none of them are lying still.\n\nThey sing one note, all together. It's the note the Lantern hums on a still night.\n\nI always thought that hum was the glass."],

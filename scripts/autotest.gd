@@ -170,9 +170,33 @@ func ui_shots() -> void:
 	main.hud.dialog([load("res://scripts/story.gd").PAGES[2]])
 	await w(2.5)
 	await shot("u3_dialog")
+	main.hud._close_modal()
+	# A lesson over play, and the bestiary with a few foes met and lessons learnt.
+	main.profile["taught"] = ["snuff", "flask", "nova"]
+	main.profile["seen"] = ["husk", "moth", "gloam"]
+	g.hud.lesson_t = -9.0
+	g.teach("parry")
+	await w(0.8)
+	await shot("u5_lesson")
 	main.hud.show_pause()
 	await w(0.4)
 	await shot("u4_pause")
+	main.hud.show_codex(main.hud.show_pause)
+	await w(0.4)
+	await shot("u6_codex")
+	main.hud._codex_turn(2)
+	await w(0.3)
+	await shot("u7_codex_unmet")
+	main.hud._codex_turn(6)
+	await w(0.3)
+	await shot("u8_codex_gloam")
+	main.hud._codex_turn(Story.FOES.size())
+	await w(0.3)
+	await shot("u9_codex_lore")
+	main.hud.close_codex()
+	main.hud.show_town()
+	await w(0.4)
+	await shot("u10_town")
 	# One wick: the badge on the way down, and the end of it.
 	main.hud._close_modal()
 	main.mode = "descent"
@@ -500,6 +524,13 @@ func mechanics_test() -> void:
 var pfails := 0
 
 
+func _key_ev(k: int) -> InputEventKey:
+	var ev := InputEventKey.new()
+	ev.physical_keycode = k
+	ev.pressed = true
+	return ev
+
+
 func pcheck(ok: bool, what: String) -> void:
 	print("PROG %s %s" % [what, "ok" if ok else "FAIL"])
 	if not ok:
@@ -533,6 +564,56 @@ func progress_test() -> void:
 		if p["type"] == "stairs":
 			g.teleport(p["pos"] + Vector2(-30, 20))
 	await w(0.3)
+
+	# Lessons: one comes the first time its moment does, and never again.
+	# (A hollow wall close by would speak first; that one is tried on the bot tour.)
+	pr["taught"] = ["hollow"]
+	pr["seen"] = []
+	g.teach_done = false
+	g.hud.lesson_t = -9.0
+	g.oil = g.max_oil * 0.25
+	g.teach_t = 0.0
+	await w(0.4)
+	pcheck(main.knows("snuff") and g.hud.lesson_cur.get("id", "") == "snuff" and g.hud.lesson_box.visible,
+		"low oil teaches the hooded lamp, on the screen")
+	pcheck(g.hud.modal == "", "a lesson never stops play for input")
+	g.hud.lesson_t = -9.0
+	pcheck(not g.teach("snuff") and (pr["taught"] as Array).count("snuff") == 1, "a lesson taught is not taught again")
+	g.oil = g.max_oil
+	var seen_h = g.spawn_enemy("husk", g.ppos + Vector2(28, 0), 0)
+	seen_h.stun = 9.0
+	await w(0.5)
+	pcheck((pr["seen"] as Array).has("husk") and not (pr["seen"] as Array).has("cantor"), "a foe in sight is met, for the bestiary")
+	seen_h.dead = true
+	seen_h.visible = false
+	g.hud.lesson_t = -9.0
+
+	# The bestiary, from the pause screen: met foes by name, the rest in shadow.
+	main.hud.show_pause()
+	for o in main.hud.modal_root.find_children("*", "Button", true, false):
+		if (o as Button).text == "Bestiary":
+			(o as Button).pressed.emit()
+	pcheck(main.hud.modal == "codex", "the pause screen opens the bestiary")
+	var names: Array = []
+	for o in main.hud.modal_root.find_children("*", "Label", true, false):
+		names.append((o as Label).text)
+	for o in main.hud.modal_root.find_children("*", "Button", true, false):
+		names.append((o as Button).text)
+	pcheck(names.has("Hollow Keeper") and names.has("? ? ?") and not names.has("Choir Cantor"),
+		"met foes are named and the rest are hidden")
+	await w(0.3)
+	await shot("p_codex")
+	main.hud._codex_turn(Story.FOES.size())
+	await w(0.3)
+	var lore_lit := false
+	for o in main.hud.modal_root.find_children("*", "Label", true, false):
+		if (o as Label).text == Story.LESSONS[2]["lore"]:
+			lore_lit = true
+	pcheck(lore_lit, "the lamp lore page keeps the lesson taught")
+	await shot("p_codex_lore")
+	main.hud.close_codex()
+	pcheck(main.hud.modal == "pause", "closing the bestiary goes back to the pause screen")
+	main.hud._close_modal()
 
 	# Mercy: one blow cannot take Wren from more than a heart to nothing.
 	g.hp = 8
@@ -660,11 +741,21 @@ func progress_test() -> void:
 	main.hud.show_deeds()
 	await w(0.3)
 	await shot("p_deeds")
+	main.hud.show_town()
+	for o in main.hud.modal_root.find_children("*", "Button", true, false):
+		if (o as Button).text == "Bestiary":
+			(o as Button).pressed.emit()
+	pcheck(main.hud.modal == "codex", "the town opens the bestiary")
+	get_viewport().push_input(_key_ev(KEY_RIGHT))
+	pcheck(main.hud.codex_page == 1, "the arrow keys turn the page")
+	get_viewport().push_input(_key_ev(KEY_ESCAPE))
+	pcheck(main.hud.modal == "town", "Esc goes back to the town")
 	main.hud._close_modal()
 	main.new_game(1)
 	await w(2.0)
 	g = main.game
 	g.hud.card_t = 0.0
+	pcheck(not g.teach("snuff"), "a lesson stays taught in the next descent")
 	pcheck(g.max_hp == 10 and g.max_oil == 125.0 and g.spare_match and g.bolt_cost() == 15.0, "the lit town strengthens a fresh descent")
 	g.add_xp(g.xp_next)
 	await w(1.0)
@@ -1087,6 +1178,13 @@ func touch_test() -> void:
 	await w(0.3)
 	check("the pause stone pauses", main.hud.modal == "pause")
 	await shot("t_pause")
+	await tap_button("Bestiary")
+	check("a tap opens the bestiary", main.hud.modal == "codex")
+	await tap_button("Lamp lore")
+	check("a tap turns to the lamp lore", main.hud.codex_page == Story.FOES.size())
+	await shot("t_codex")
+	await tap_button("Back")
+	check("Back returns to the pause screen", main.hud.modal == "pause")
 	await tap_button("Picture")
 	check("the picture switch flips", main.profile["fast"])
 	await tap_button("Frame rate")
