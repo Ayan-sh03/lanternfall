@@ -219,6 +219,85 @@ func run() -> void:
 	g.flare_cd = 0.0
 	await clear_foes(g)
 
+	# --- The light dial ---
+	# Tiers follow the flask, and a hooded lamp is Dark once the dark settles.
+	var tiers: Array = []
+	for f in [1.0, 0.7, 0.6, 0.45, 0.35, 0.25, 0.15, 0.0]:
+		g.oil = g.max_oil * f
+		tiers.append(g.light_tier())
+	check(tiers == [0, 0, 1, 1, 2, 2, 3, 3], "the light tiers sit where they should (%s)" % str(tiers))
+	g.oil = g.max_oil
+	g.snuffed = true
+	g.snuff_t = 1.0
+	var hooded: int = g.light_tier()
+	g.snuff_t = g.SNUFF_SETTLE + 0.1
+	var settled: int = g.light_tier()
+	g.snuffed = false
+	check(hooded == 0 and settled == g.LIGHT_DARK, "a hooded lamp turns Dark only once the dark settles (%d, %d)" % [hooded, settled])
+	# Loot rises in the dark: urns broken by a full lamp, then by a dying one.
+	var spill := func(frac: float) -> Array:
+		g.oil = g.max_oil * frac
+		var n0: int = g.pickups.size()
+		for k in 80:
+			g._break_urn({"type": "urn", "done": false, "node": Node2D.new(), "pos": g.ppos + Vector2(400, 400)})
+		var got := [0, 0]
+		for i in range(n0, g.pickups.size()):
+			got[0 if g.pickups[i]["type"] == "cinder" else 1] += 1
+		for i in range(n0, g.pickups.size()):
+			g.pickups[i]["node"].queue_free()
+		g.pickups.resize(n0)
+		return got
+	var lit_loot: Array = spill.call(1.0)
+	var dark_loot: Array = spill.call(0.1)
+	check(dark_loot[0] > lit_loot[0] * 1.6 and dark_loot[1] > lit_loot[1], "urns give more in the dark (embers %d -> %d, hearts and oil %d -> %d)" % [lit_loot[0], dark_loot[0], lit_loot[1], dark_loot[1]])
+	# A kill in the dark banks more embers and leaves more cinders.
+	var kill_pay := func(frac: float) -> Array:
+		g.oil = g.max_oil * frac
+		var e0 := int(main.profile["embers"])
+		var n0: int = g.pickups.size()
+		var vic = foe(g, "husk", g.ppos + Vector2(400, 400), 1.0)
+		vic.awake = true
+		vic.hurt(99.0, Vector2.ZERO)
+		var cinders := 0
+		for i in range(n0, g.pickups.size()):
+			if g.pickups[i]["type"] == "cinder":
+				cinders += 1
+			g.pickups[i]["node"].queue_free()
+		g.pickups.resize(n0)
+		return [int(main.profile["embers"]) - e0, cinders]
+	var lit_kill: Array = kill_pay.call(1.0)
+	var dark_kill: Array = kill_pay.call(0.1)
+	check(dark_kill[0] == lit_kill[0] * 2 and dark_kill[1] > lit_kill[1], "a kill in the dark pays more (embers %d -> %d, cinders %d -> %d)" % [lit_kill[0], dark_kill[0], lit_kill[1], dark_kill[1]])
+	# Caught in the dark, a waking foe rushes; in good light it does not.
+	g.oil = g.max_oil
+	var calm = foe(g, "husk", g.ppos + Vector2(400, 400))
+	calm.wake()
+	g.oil = g.max_oil * 0.1
+	var rush = foe(g, "husk", g.ppos + Vector2(400, 400))
+	rush.wake()
+	check(calm.rush_t == 0.0 and rush.rush_t > 1.0, "foes that wake on her in the dark rush her (%.1f, %.1f)" % [calm.rush_t, rush.rush_t])
+	calm.dead = true
+	calm.visible = false
+	rush.dead = true
+	rush.visible = false
+	await frames(3)
+	check(g.said.has("dark_tier"), "Wren remarks on the dark the first time she reaches it")
+	await at.shot("w_dark")
+	# Relighting after a proper dark costs oil; a slip of the key does not.
+	g.oil = 80.0
+	g.snuff()
+	g.snuff_t = 1.0
+	g.relight()
+	var after_dark: float = g.oil
+	g.oil = 80.0
+	g.snuff()
+	g.snuff_t = 0.1
+	g.relight()
+	check(is_equal_approx(after_dark, 80.0 - g.RELIGHT_COST) and is_equal_approx(g.oil, 80.0), "relighting costs oil, a slip does not (%.0f, %.0f)" % [after_dark, g.oil])
+	g.oil = g.max_oil
+	g.flare_cd = 0.0
+	await clear_foes(g)
+
 	# --- The echo ---
 	g.echo_cd = 0.0
 	g.echo_track.clear()

@@ -153,6 +153,9 @@ func ui_shots() -> void:
 	main.pick_new()
 	await w(1.0)
 	await shot("u1_slots")
+	main.pick_mode()
+	await w(1.0)
+	await shot("u1_modes")
 	main.hud._close_modal()
 	main.new_game(1)
 	await w(1.2)
@@ -167,9 +170,61 @@ func ui_shots() -> void:
 	main.hud.dialog([load("res://scripts/story.gd").PAGES[2]])
 	await w(2.5)
 	await shot("u3_dialog")
+	main.hud._close_modal()
+	# A lesson over play, and the bestiary with a few foes met and lessons learnt.
+	main.profile["taught"] = ["snuff", "flask", "nova"]
+	main.profile["seen"] = ["husk", "moth", "gloam"]
+	g.hud.lesson_t = -9.0
+	g.teach("parry")
+	await w(0.8)
+	await shot("u5_lesson")
 	main.hud.show_pause()
 	await w(0.4)
 	await shot("u4_pause")
+	main.hud.show_codex(main.hud.show_pause)
+	await w(0.4)
+	await shot("u6_codex")
+	main.hud._codex_turn(2)
+	await w(0.3)
+	await shot("u7_codex_unmet")
+	main.hud._codex_turn(6)
+	await w(0.3)
+	await shot("u8_codex_gloam")
+	main.hud._codex_turn(Story.FOES.size())
+	await w(0.3)
+	await shot("u9_codex_lore")
+	main.hud.close_codex()
+	main.hud.show_town()
+	await w(0.4)
+	await shot("u10_town")
+	# One wick: the badge on the way down, and the end of it.
+	main.hud._close_modal()
+	main.mode = "descent"
+	main.new_game(3, {}, true)
+	await w(5.0)
+	main.game.hud.card_t = 0.0
+	await shot("u5_descent_hud")
+	# A Descent's slot card, in slot 1 - only where a save tag keeps it apart
+	# from the player's own saves.
+	if main._slot_path(0) != "user://save_0.json":
+		main.game.save_game(-1)
+		var f := FileAccess.open(main._slot_path(0), FileAccess.WRITE)
+		f.store_string(JSON.stringify(main.read_save(9)))
+		f.close()
+		main.pick_load()
+		await w(1.0)
+		await shot("u5_descent_slot")
+		main.hud._close_modal()
+		main.delete_save(0)
+	main.game.bot = true
+	main.game.match_used = true
+	main.game.invuln = 0.0
+	main.game.hp = 1
+	main.game.hurt_player(2, main.game.ppos + Vector2(10, 0), 100.0, "brute")
+	main.bank(38)
+	await w(3.6)
+	await shot("u6_descent_death")
+	main.mode = "pilgrim"
 	main.delete_save(9)
 	get_tree().quit()
 
@@ -461,12 +516,190 @@ func mechanics_test() -> void:
 	if not ok:
 		fails += 1
 	await shot("m_gloam_gone")
+	fails += await _feel_checks(g)
+	# Set-aside rooms and the second stair (roomtest.gd).
+	var rt = load("res://scripts/roomtest.gd").new()
+	rt.main = main
+	rt.at = self
+	add_child(rt)
+	fails += await rt.run_checks()
 	print("MECH %s" % ("PASS" if fails == 0 else "FAIL %d" % fails))
 	main.delete_save(9)
 	get_tree().quit(1 if fails > 0 else 0)
 
 
+## Combat feel: hitstop is the longest of a frame's hits, never their sum, and
+## only Wren's blows (and blows on her) stop the world; shake is capped, moves
+## in whole art pixels and obeys the setting; the setting survives a reload.
+func _feel_checks(g) -> int:
+	# Lambdas capture locals by value, so the count lives in an array.
+	var fails := [0]
+	var feel := func(ok: bool, what: String) -> void:
+		print("MECH feel: %s %s" % [what, "ok" if ok else "FAIL"])
+		if not ok:
+			fails[0] += 1
+	var keep: Dictionary = main.profile.duplicate(true)
+	main.profile["shake"] = 2
+	main.profile["resolve"] = false
+	var crit0: float = g.stats["crit"]
+	g.stats["crit"] = 0.0
+	g.snuffed = false
+	g.god = false
+	g.aim = Vector2.RIGHT
+	var crowd: Array = []
+	for i in 12:
+		var e = g.spawn_enemy("husk", g.ppos + Vector2(15.0 + (i % 3) * 3.0, (i / 3 - 1.5) * 3.0), 0)
+		e.awake = true
+		e.state = "rest"
+		e.st = 99.0
+		e.stun = 99.0
+		e.hp = 999.0
+		crowd.append(e)
+	await get_tree().process_frame
+	var reset := func() -> void:
+		g.hitstop = 0.0
+		g.stop_debt = 0.0
+		g._stop_f = -1
+		g.riposte_t = 0.0
+		g.atk_cd = 0.0
+	# A light swing through the whole crowd holds for one light hit.
+	reset.call()
+	g.combo_t = 0.0
+	g.do_slash()
+	var struck := 0
+	for e in crowd:
+		if e.hp < 999.0:
+			struck += 1
+	feel.call(struck >= 6 and is_equal_approx(g.hitstop, 0.04),
+		"light swing hit %d foes, hitstop %.3f (want 0.040)" % [struck, g.hitstop])
+	reset.call()
+	g.combo = 2
+	g.combo_t = 0.5
+	g.do_slash()
+	feel.call(is_equal_approx(g.hitstop, 0.08), "heavy swing through the crowd, hitstop %.3f (want 0.080)" % g.hitstop)
+	reset.call()
+	g.freeze(0.04)
+	for i in 20:
+		g.freeze(0.12)
+	g.freeze(0.08)
+	feel.call(is_equal_approx(g.hitstop, 0.12), "22 freezes in one frame hold %.3f, the longest (want 0.120)" % g.hitstop)
+	reset.call()
+	g.freeze(1.0)
+	feel.call(is_equal_approx(g.hitstop, g.HITSTOP_CAP), "a huge freeze is capped at %.3f" % g.hitstop)
+	# Freezes in quick succession are cut short.
+	await get_tree().process_frame
+	g.hitstop = 0.0
+	g.freeze(0.12)
+	feel.call(g.hitstop < 0.12, "a freeze straight after another is shorter: %.3f" % g.hitstop)
+	# A burn kill, or fire on Wren, does not stop the world; a hex holds less than a charge.
+	for e in crowd:
+		e.dead = true
+		e.visible = false
+	var b = g.spawn_enemy("husk", g.ppos + Vector2(40, 0), 0)
+	b.awake = true
+	b.hp = 1.0
+	reset.call()
+	b.hurt(5.0, Vector2.ZERO, Color(1.0, 0.6, 0.2), "burn")
+	feel.call(b.dead and g.hitstop == 0.0, "a foe burned out holds nothing: %.3f" % g.hitstop)
+	var hits := {}
+	var wash := {}
+	for kind in ["fire", "hex", "claw", "charge", "claw_low"]:
+		reset.call()
+		g.invuln = 0.0
+		g.hp = 2 if kind == "claw_low" else g.max_hp
+		g.hud.hurt_wash = 0.0
+		var brute = g.spawn_enemy("brute", g.ppos + Vector2(60, 0), 0)
+		match kind:
+			"fire":
+				g.hurt_player(1, g.ppos + Vector2(0, 6), 90.0, "fire")
+			"hex":
+				g.hurt_player(1, g.ppos + Vector2(10, 0), 130.0, "cantor")
+			"charge":
+				g.hurt_player(2, g.ppos + Vector2(10, 0), 280.0, brute)
+			_:
+				g.hurt_player(1, g.ppos + Vector2(10, 0), 170.0, brute)
+		brute.dead = true
+		brute.visible = false
+		hits[kind] = g.hitstop
+		wash[kind] = g.hud.hurt_wash
+	g.hp = g.max_hp
+	g.invuln = 0.0
+	feel.call(hits["fire"] == 0.0 and hits["hex"] < hits["claw"] and hits["claw"] < hits["charge"],
+		"hitstop on Wren: fire %.2f < hex %.2f < claw %.2f < charge %.2f" % [hits["fire"], hits["hex"], hits["claw"], hits["charge"]])
+	feel.call(wash["claw_low"] > wash["claw"], "the red flash is stronger near death: %.2f > %.2f" % [wash["claw_low"], wash["claw"]])
+	g.hitstop = 0.0
+	g.stats["crit"] = crit0
+
+	# Twenty blows in one frame shake no harder than one.
+	g.trauma = 0.0
+	g._shake_f = -1
+	for i in 20:
+		g.add_shake(5.0)
+	feel.call(is_equal_approx(g.trauma, sqrt(5.0 / g.SHAKE_PX)), "20 shakes in one frame: trauma %.3f, as one" % g.trauma)
+	# Blows every frame for a second stack only up to the cap, in whole art pixels.
+	var top := 0.0
+	var worst := 0.0
+	var whole := true
+	for i in 60:
+		g.add_shake(5.0)
+		await get_tree().process_frame
+		top = maxf(top, g.trauma)
+		worst = maxf(worst, maxf(absf(g.shake_off.x), absf(g.shake_off.y)))
+		whole = whole and g.shake_off == g.shake_off.round()
+	feel.call(top <= g.TRAUMA_STACK + 0.001 and worst <= ceilf(g.TRAUMA_STACK * g.TRAUMA_STACK * g.SHAKE_PX) and worst >= 1.0,
+		"a second of blows: trauma at most %.3f, shake at most %d px" % [top, int(worst)])
+	feel.call(whole, "shake moves in whole art pixels")
+	# Off: no shake, punch or zoom kick at all. Low: half.
+	main.profile["shake"] = 0
+	g.trauma = 0.0
+	g._shake_f = -1
+	g.cam_punch = Vector2.ZERO
+	g.zoom_kick = 0.0
+	g.add_shake(12.0)
+	g.punch(Vector2.RIGHT, 6.0)
+	g.kick(0.2)
+	var moved := 0.0
+	for i in 10:
+		await get_tree().process_frame
+		moved = maxf(moved, g.shake_off.length() + g.cam_punch.length())
+	feel.call(moved == 0.0 and g.zoom_kick == 0.0, "shake off: view moved %.2f, zoom kick %.2f" % [moved, g.zoom_kick])
+	main.profile["shake"] = 1
+	g.trauma = 0.0
+	g._shake_f = -1
+	g.add_shake(12.0)
+	worst = 0.0
+	for i in 10:
+		await get_tree().process_frame
+		worst = maxf(worst, maxf(absf(g.shake_off.x), absf(g.shake_off.y)))
+	feel.call(worst >= 1.0 and worst <= g.SHAKE_PX * 0.5, "shake low: at most %d px" % int(worst))
+	# The setting goes into the profile and comes back out of it.
+	var path := "user://feel_profile_%d.json" % OS.get_process_id()
+	var f := FileAccess.open(path, FileAccess.WRITE)
+	f.store_string(JSON.stringify(main.profile))
+	f.close()
+	main.profile["shake"] = 2
+	main._load_profile(path)
+	var back: int = main.profile["shake"]
+	f = FileAccess.open(path, FileAccess.WRITE)
+	f.store_string(JSON.stringify({"shake": 7}))
+	f.close()
+	main._load_profile(path)
+	var clamped: int = main.profile["shake"]
+	DirAccess.remove_absolute(path)
+	feel.call(back == 1 and clamped == 2 and main.hud._opt_text("shake") == "Shake:  full",
+		"shake setting saved and loaded: %d, a bad one clamped to %d" % [back, clamped])
+	main.profile = keep
+	return fails[0]
+
+
 var pfails := 0
+
+
+func _key_ev(k: int) -> InputEventKey:
+	var ev := InputEventKey.new()
+	ev.physical_keycode = k
+	ev.pressed = true
+	return ev
 
 
 func pcheck(ok: bool, what: String) -> void:
@@ -488,6 +721,7 @@ func progress_test() -> void:
 	pr["resolve"] = false
 	await w(0.5)
 	main.hud._close_modal()
+	await build_checks()
 	main.new_game(1)
 	await w(2.5)
 	var g = main.game
@@ -502,6 +736,56 @@ func progress_test() -> void:
 		if p["type"] == "stairs":
 			g.teleport(p["pos"] + Vector2(-30, 20))
 	await w(0.3)
+
+	# Lessons: one comes the first time its moment does, and never again.
+	# (A hollow wall close by would speak first; that one is tried on the bot tour.)
+	pr["taught"] = ["hollow"]
+	pr["seen"] = []
+	g.teach_done = false
+	g.hud.lesson_t = -9.0
+	g.oil = g.max_oil * 0.25
+	g.teach_t = 0.0
+	await w(0.4)
+	pcheck(main.knows("snuff") and g.hud.lesson_cur.get("id", "") == "snuff" and g.hud.lesson_box.visible,
+		"low oil teaches the hooded lamp, on the screen")
+	pcheck(g.hud.modal == "", "a lesson never stops play for input")
+	g.hud.lesson_t = -9.0
+	pcheck(not g.teach("snuff") and (pr["taught"] as Array).count("snuff") == 1, "a lesson taught is not taught again")
+	g.oil = g.max_oil
+	var seen_h = g.spawn_enemy("husk", g.ppos + Vector2(28, 0), 0)
+	seen_h.stun = 9.0
+	await w(0.5)
+	pcheck((pr["seen"] as Array).has("husk") and not (pr["seen"] as Array).has("cantor"), "a foe in sight is met, for the bestiary")
+	seen_h.dead = true
+	seen_h.visible = false
+	g.hud.lesson_t = -9.0
+
+	# The bestiary, from the pause screen: met foes by name, the rest in shadow.
+	main.hud.show_pause()
+	for o in main.hud.modal_root.find_children("*", "Button", true, false):
+		if (o as Button).text == "Bestiary":
+			(o as Button).pressed.emit()
+	pcheck(main.hud.modal == "codex", "the pause screen opens the bestiary")
+	var names: Array = []
+	for o in main.hud.modal_root.find_children("*", "Label", true, false):
+		names.append((o as Label).text)
+	for o in main.hud.modal_root.find_children("*", "Button", true, false):
+		names.append((o as Button).text)
+	pcheck(names.has("Hollow Keeper") and names.has("? ? ?") and not names.has("Choir Cantor"),
+		"met foes are named and the rest are hidden")
+	await w(0.3)
+	await shot("p_codex")
+	main.hud._codex_turn(Story.FOES.size())
+	await w(0.3)
+	var lore_lit := false
+	for o in main.hud.modal_root.find_children("*", "Label", true, false):
+		if (o as Label).text == Story.LESSONS[2]["lore"]:
+			lore_lit = true
+	pcheck(lore_lit, "the lamp lore page keeps the lesson taught")
+	await shot("p_codex_lore")
+	main.hud.close_codex()
+	pcheck(main.hud.modal == "pause", "closing the bestiary goes back to the pause screen")
+	main.hud._close_modal()
 
 	# Mercy: one blow cannot take Wren from more than a heart to nothing.
 	g.hp = 8
@@ -629,11 +913,21 @@ func progress_test() -> void:
 	main.hud.show_deeds()
 	await w(0.3)
 	await shot("p_deeds")
+	main.hud.show_town()
+	for o in main.hud.modal_root.find_children("*", "Button", true, false):
+		if (o as Button).text == "Bestiary":
+			(o as Button).pressed.emit()
+	pcheck(main.hud.modal == "codex", "the town opens the bestiary")
+	get_viewport().push_input(_key_ev(KEY_RIGHT))
+	pcheck(main.hud.codex_page == 1, "the arrow keys turn the page")
+	get_viewport().push_input(_key_ev(KEY_ESCAPE))
+	pcheck(main.hud.modal == "town", "Esc goes back to the town")
 	main.hud._close_modal()
 	main.new_game(1)
 	await w(2.0)
 	g = main.game
 	g.hud.card_t = 0.0
+	pcheck(not g.teach("snuff"), "a lesson stays taught in the next descent")
 	pcheck(g.max_hp == 10 and g.max_oil == 125.0 and g.spare_match and g.bolt_cost() == 15.0, "the lit town strengthens a fresh descent")
 	g.add_xp(g.xp_next)
 	await w(1.0)
@@ -655,9 +949,356 @@ func progress_test() -> void:
 	br.st = 5.0
 	await w(0.3)
 	await shot("p_warning")
+	await ways_down_test()
 	print("PROG %s" % ("PASS" if pfails == 0 else "FAIL %d" % pfails))
 	main.delete_save(9)
 	get_tree().quit(1 if pfails > 0 else 0)
+
+
+## A fall that nothing catches: no spare match, no turned blow.
+func _fall(g) -> void:
+	g.match_used = true
+	g.invuln = 0.0
+	g.hp = 1
+	g.hurt_player(2, g.ppos + Vector2(10, 0), 100.0, "husk")
+	# Game time runs behind the clock on a slow frame, so wait for the screen itself.
+	var waited := 0.0
+	while main.hud.modal != "death" and waited < 12.0:
+		await w(0.2)
+		waited += 0.2
+	await w(0.3)
+
+
+func _modal_has(cls: String, text: String) -> bool:
+	if main.hud.modal_root == null:
+		return false
+	for n in main.hud.modal_root.find_children("*", cls, true, false):
+		if n.text.contains(text):
+			return true
+	return false
+
+
+func _press(text: String) -> bool:
+	for n in main.hud.modal_root.find_children("*", "Button", true, false):
+		if (n as Button).text == text:
+			(n as Button).pressed.emit()
+			return true
+	return false
+
+
+## The two ways down: a pilgrim wakes at the lamp, a Descent's fall is the end
+## of it, and each keeps its own records.
+func ways_down_test() -> void:
+	var pr: Dictionary = main.profile
+	main.hud._close_modal()
+	main.pick_mode()
+	await w(0.6)
+	pcheck(main.hud.modal == "choice" and main.hud.choice_n == 2, "a new slot asks which way down")
+	await shot("p_modes")
+	main.hud._close_modal()
+
+	# Pilgrimage: the fall is caught at the last lamp, build and all.
+	main.mode = "pilgrim"
+	main.delete_save(9)
+	main.new_game(1)
+	await w(2.0)
+	var g = main.game
+	g.bot = true
+	g.bot_manual = true
+	g.level = 4
+	g.apply_boon("edge")
+	var lamp := -1
+	var lamp_pos := Vector2.ZERO
+	for p in g.props:
+		if p["type"] == "lamp":
+			lamp = p["idx"]
+			lamp_pos = p["pos"]
+	g.save_game(lamp)
+	pcheck(main.mode_of(main.read_save(9)) == "pilgrim", "a pilgrimage's save says so")
+	await _fall(g)
+	pcheck(main.hud.modal == "death" and not main.read_save(9).is_empty() and _modal_has("Button", "Wake at your last lamp"),
+		"a pilgrim's fall keeps the slot and offers the lamp")
+	var dead_g = g
+	main.retry()
+	# Looked at the moment she wakes, before a foe on the floor can reach her.
+	var waited := 0.0
+	while (main.game == dead_g or main.game == null) and waited < 3.0:
+		await get_tree().process_frame
+		waited += get_process_delta_time()
+	await get_tree().process_frame
+	g = main.game
+	pcheck(g.level == 4 and g.boons.has("edge") and g.hp == g.max_hp and main.mode == "pilgrim", "the pilgrim wakes whole, with her build (level %d, %s, hp %d/%d)" % [g.level, g.boons, g.hp, g.max_hp])
+	pcheck(lamp < 0 or (g.ppos - lamp_pos).length() < 40.0, "and beside the lamp (%.0f away)" % (g.ppos - lamp_pos).length())
+
+	# Descent: embers burn brighter, and the way down is kept in the save.
+	main.mode = "descent"
+	main.delete_save(9)
+	main.new_game(1)
+	await w(2.0)
+	g = main.game
+	var e0 := int(pr["embers"])
+	main.bank(10)
+	pcheck(int(pr["embers"]) == e0 + 15, "on one wick embers burn half again as bright (+%d)" % (int(pr["embers"]) - e0))
+	g.level = 5
+	g.apply_boon("edge")
+	g.save_game(-1)
+	pcheck(main.mode_of(main.read_save(9)) == "descent" and int(main.read_save(9).get("run_embers", 0)) == 15, "a Descent's save says so, and counts its embers")
+	main.mode = "pilgrim"
+	main.load_slot(9)
+	await w(2.5)
+	g = main.game
+	pcheck(main.mode == "descent" and g.level == 5 and main.run_embers == 15, "a Descent loads as a Descent")
+	# Saves from before the choice were all pilgrimages.
+	var old: Dictionary = main.read_save(9)
+	old.erase("mode")
+	var f := FileAccess.open(main._slot_path(9), FileAccess.WRITE)
+	f.store_string(JSON.stringify(old))
+	f.close()
+	main.mode = "descent"
+	main.load_slot(9)
+	await w(2.5)
+	pcheck(main.mode == "pilgrim", "an old save with no way down loads as a pilgrimage")
+
+	# A Descent left mid-floor keeps its wounds; a fall ends it for good.
+	main.mode = "descent"
+	main.delete_save(9)
+	main.new_game(1)
+	await w(2.0)
+	g = main.game
+	g.bot = true
+	g.bot_manual = true
+	g.level = 5
+	g.apply_boon("edge")
+	g.hp = 3
+	main._keep_descent()
+	pcheck(int(main.read_save(9).get("hp", 0)) == 3 and int(main.read_save(9).get("level", 0)) == 5, "leaving a Descent mid-floor saves it as it stands")
+	var e1 := int(pr["embers"])
+	var lit: int = (pr["town"] as Array).size()
+	await _fall(g)
+	pcheck(main.hud.modal == "death" and main.read_save(9).is_empty(), "a Descent's fall clears its slot")
+	pcheck(int(pr["embers"]) >= e1 and (pr["town"] as Array).size() == lit, "but the embers and the town are kept")
+	pcheck(_modal_has("Label", "Descent ended at Depth I") and not _modal_has("Button", "Wake at your last lamp"),
+		"the death screen says where the Descent ended, and offers no lamp")
+	pcheck(int(pr["best"].get("depth_descent", 0)) >= 1 and int(pr["best"].get("depth_pilgrim", 0)) >= 1, "each way down keeps its own deepest depth")
+	await shot("p_descent_death")
+	pcheck(_press("Begin a new Descent"), "a new Descent can be begun from the death screen")
+	await w(2.5)
+	g = main.game
+	pcheck(g.depth == 1 and g.level == 1 and not g.boons.has("edge") and main.mode == "descent" and not g.dead,
+		"it starts at the top with nothing carried")
+
+	# Starting partway down is always a pilgrimage.
+	main.pending_depth = 2
+	main._start_depth_in_slot(9)
+	await w(2.5)
+	pcheck(main.mode == "pilgrim" and main.game.depth == 2, "depth select starts a pilgrimage")
+
+	# Down to the fourth depth and out again on one wick: deeds and records.
+	main.mode = "descent"
+	main.new_game(4)
+	await w(2.0)
+	pcheck(int(pr["best"].get("depth_descent", 0)) == 4 and (pr["feats"] as Array).has("descent4"), "the fourth depth on one wick is a record and a deed")
+	main.ending(0)
+	await w(1.0)
+	pcheck(int(pr["tally"].get("descent_wins", 0)) == 1 and (pr["feats"] as Array).has("descent_win") and main.read_save(9).is_empty(),
+		"a finished Descent is counted, and is a deed")
+	main._keep_descent()
+	pcheck(main.read_save(9).is_empty(), "and nothing writes its slot back")
+	main.mode = "pilgrim"
+
+
+## Choices with stakes: the relic draft, the aspects the offers lean toward,
+## stack caps, what each bargain gives and takes, and an old save still loading.
+func build_checks() -> void:
+	main.new_game(1)
+	await w(2.0)
+	var g = main.game
+	var hud = main.hud
+	g.bot = true
+	g.bot_manual = true
+	g.god = false
+	hud.card_t = 0.0
+	for e in g.enemies:
+		e.dead = true
+		e.visible = false
+
+	# The relic draft: up to three distinct relics she lacks, until none are left.
+	var got: Array = []
+	var draft_ok := true
+	for k in 4:
+		g._offer_relics()
+		var n_left: int = 4 - k
+		var ids: Array = g.offer.duplicate()
+		var distinct := true
+		for id in ids:
+			if ids.count(id) > 1 or got.has(id):
+				distinct = false
+		var ok: bool = hud.modal == "choice" and g.offer_kind == "relic" and ids.size() == mini(3, n_left) and distinct
+		if k == 0:
+			await w(0.6)
+			await shot("p_relic_draft")
+		if not ok:
+			draft_ok = false
+			print("PROG relic offer %d: %s" % [k, ids])
+		hud._choose(0)
+		got.append(ids[0])
+		hud._close_modal()
+	pcheck(draft_ok, "each relic stand offers up to three distinct relics Wren lacks (%s)" % [got])
+	pcheck(g.powers["nova"] and g.powers["spark"] and g.powers["ward"] and g.spare_match, "four stands give all four relics, in the order chosen")
+	g._offer_relics()
+	pcheck(g.offer_kind == "boon", "with every relic held, a stand is a kindling cache")
+	hud._close_modal()
+
+	# The first offer shows one of each aspect.
+	g.boons.clear()
+	var first: Array = g.draw_offer(3)
+	var seen := {}
+	for c in first:
+		seen[c["aspect"]] = true
+	pcheck(seen.size() == 3, "the first offer holds one card of each aspect")
+
+	# Two kindlings of Oil & Ember: the offers lean toward it, with one card from elsewhere.
+	g.boons = ["kindle", "flask"]
+	var lean := 0
+	var slots := 0
+	var always_off := true
+	for k in 300:
+		var opts: Array = g.draw_offer(3)
+		var off := 0
+		for c in opts:
+			if c["aspect"] != "ember":
+				off += 1
+			if not c["off"]:
+				slots += 1
+				if c["aspect"] == "ember":
+					lean += 1
+		if off == 0:
+			always_off = false
+	var share := float(lean) / maxf(slots, 1.0)
+	pcheck(share > 0.55, "after two Oil & Ember picks, %.0f%% of the leaning cards are Oil & Ember" % (share * 100.0))
+	pcheck(always_off, "every offer still holds a card from another aspect")
+
+	# A capped kindling stops being offered.
+	g.boons = ["edge", "edge", "edge"]
+	var capped_seen := false
+	for k in 200:
+		for c in g.draw_offer(4):
+			if c["id"] == "edge":
+				capped_seen = true
+	pcheck(not g.can_offer(Story.BOONS[0]) and not capped_seen, "Keen Edge stops coming after three")
+	var bargains := 0
+	var two := false
+	g.boons.clear()
+	for k in 300:
+		var nb := 0
+		for c in g.draw_offer(4):
+			if c.get("bargain", false):
+				nb += 1
+		bargains += nb
+		two = two or nb > 1
+	pcheck(bargains > 0 and not two, "bargains are offered, never two at once (%d seen)" % bargains)
+
+	# Offer cards: an aspect on each, a bargain's price, and the half of a pair.
+	g.boons = ["burn", "edge", "edge"]
+	var cards: Array = [g.boon_card(Story.BOONS[19]), g.boon_card(Story.BOONS[24]), g.boon_card(Story.BOONS[0])]
+	pcheck(cards[0]["id"] == "trail" and String(cards[0].get("hint", "")).contains("Wildfire") and cards[0].get("pairs", false),
+		"Cinder Trail's card says it pairs with Afterburn (%s)" % cards[0].get("hint", ""))
+	pcheck(cards[1]["id"] == "burnwick" and cards[1].has("cost"), "a bargain's card carries its price")
+	pcheck(cards[2].get("held", "") == "2 of 3", "a stacking kindling's card says how many are held (%s)" % cards[2].get("held", ""))
+	g._show_offer("boon", "The warmth below reaches up to you", "Level 4  -  choose a kindling", cards, func(_i): pass)
+	await w(0.7)
+	await shot("p_offer_cards")
+	hud._close_modal()
+
+	# Each bargain pays and costs.
+	var s0: Dictionary = g.stats.duplicate()
+	g.apply_boon("burnwick")
+	pcheck(is_equal_approx(g.stats["bolt_dmg"], s0["bolt_dmg"] * 1.6) and is_equal_approx(g.stats["oil_regen"], s0["oil_regen"] * 0.5),
+		"Burn the Wick: bolts +60%, oil back half as fast")
+	g.apply_boon("lens")
+	pcheck(is_equal_approx(g.stats["power"], s0["power"] * 1.5) and is_equal_approx(g.power_cost("nova"), 42.0),
+		"Cracked Lens: powers +50%%, a nova costs %.0f oil" % g.power_cost("nova"))
+	g.apply_boon("leaden")
+	pcheck(is_equal_approx(g.stats["dmg"], s0["dmg"] * 1.45) and is_equal_approx(g.stats["speed"], s0["speed"] * 0.85),
+		"Leaden Hook: strikes +45%, 15% slower")
+	var mhp: int = g.max_hp
+	g.apply_boon("hollow")
+	pcheck(g.max_hp == mhp - 2 and is_equal_approx(g.stats["crit"], s0["crit"] + 0.25), "Hollow Heart: a heart gone, +25% sure strikes")
+	# The pact: half again in embers, and the gloams come at a third of a flask.
+	g.oil = g.max_oil
+	var h = g.spawn_enemy("husk", g.ppos + Vector2(60, 0), 0)
+	var e0 := int(main.profile["embers"])
+	h.hurt(99999.0, Vector2.ZERO)
+	var plain := int(main.profile["embers"]) - e0
+	g.oil = g.max_oil * 0.3
+	g.gloam_t = 0.0
+	var gl0 := _gloams(g)
+	g._update_gloam(0.1)
+	var before_pact := _gloams(g) - gl0
+	g.apply_boon("pact")
+	# Full oil again, so the kill pays for the pact alone and not for the dark.
+	g.oil = g.max_oil
+	h = g.spawn_enemy("husk", g.ppos + Vector2(60, 0), 0)
+	e0 = int(main.profile["embers"])
+	h.hurt(99999.0, Vector2.ZERO)
+	var paid := int(main.profile["embers"]) - e0
+	g.gloam_t = 0.0
+	g.oil = g.max_oil * 0.3
+	gl0 = _gloams(g)
+	g._update_gloam(0.1)
+	var after_pact := _gloams(g) - gl0
+	pcheck(paid == roundi(plain * 1.5) and before_pact == 0 and after_pact == 1,
+		"Pact of Embers: a kill pays %d not %d, and gloams come at 30%% oil (%d -> %d)" % [paid, plain, before_pact, after_pact])
+	for e in g.enemies:
+		e.dead = true
+		e.visible = false
+	g.oil = g.max_oil
+	g.apply_boon("moth_cloak")
+	g.dash_t = 0.0
+	g.dash_stock = 1
+	g.try_dash()
+	var dash_long: bool = is_equal_approx(g.dash_t, 0.24)
+	g.dash_t = 0.0
+	g.aim = Vector2.RIGHT
+	g.hp = 8
+	g.invuln = 0.0
+	g.hurt_player(1, g.ppos + Vector2(20, 0), 0.0, "husk")
+	var front: int = 8 - g.hp
+	g.hp = 8
+	g.invuln = 0.0
+	g.hurt_player(1, g.ppos + Vector2(-20, 0), 0.0, "husk")
+	var behind: int = 8 - g.hp
+	pcheck(dash_long and front == 1 and behind == 2, "Moth-Eaten Cloak: a longer dash, and blows from behind land harder (%d, %d)" % [front, behind])
+	g.hp = g.max_hp
+
+	# A save from before any of this still loads, and the new numbers start plain.
+	var old_stats := {"dmg": 12.5, "reach": 1.0, "speed": 80.0, "bolt_dmg": 13.0, "bolt_n": 1, "dash_cd": 0.9,
+		"light": 1.0, "oil_regen": 2.0, "heart_drop": 0.05, "sear": 0.0, "siphon": 0.0, "thorns": 0.0, "pierce": 0,
+		"power": 1.0, "cdr": 1.0, "orbit": 0, "wave": 0.0, "burn": 0.0, "shatter": 0.0, "dash_n": 1, "trail": 0.0,
+		"magnet": 1.0, "xp_mult": 1.0, "crit": 0.0, "wildfire": 0.0, "starfall": 0.0, "flashstep": 0.0,
+		"chainburst": 0.0, "riposte": 0.0, "mote_k": 1.0, "echo": 0.5, "echo_cd": 3.0}
+	main.write_save({"v": 1, "depth": 2, "name": "The Buried Choir", "seed": 4242, "lamp_idx": -1, "hp": 6, "max_hp": 8,
+		"oil": 80.0, "max_oil": 100.0, "xp": 3, "level": 2, "xp_next": 30, "stats": old_stats, "boons": ["edge"],
+		"powers": {"nova": true, "spark": false, "ward": false}, "spare": false, "match_used": false, "kills": 5,
+		"pages": 1, "run_time": 100.0, "said": {}, "done_props": [], "dead_spawns": []})
+	var s: Dictionary = main.read_save(9)
+	main.new_game(int(s["depth"]), s)
+	await w(1.5)
+	g = main.game
+	var left: Array = []
+	for r in g.relics_unowned():
+		left.append(r["power"])
+	pcheck(g.depth == 2 and g.boons == ["edge"] and is_equal_approx(g.stats["dmg"], 12.5) and is_equal_approx(g.stats["dash_len"], 1.0)
+		and g.stats["frail"] == 0 and left == ["spark", "ward", "match"], "an old save loads, with the relics it lacks still to find (%s)" % [left])
+	main.delete_save(9)
+
+
+func _gloams(g) -> int:
+	var n := 0
+	for e in g.enemies:
+		if e.kind == "gloam" and not e.dead:
+			n += 1
+	return n
 
 
 var probe_on := false
@@ -903,6 +1544,13 @@ func touch_test() -> void:
 	await w(0.3)
 	check("the pause stone pauses", main.hud.modal == "pause")
 	await shot("t_pause")
+	await tap_button("Bestiary")
+	check("a tap opens the bestiary", main.hud.modal == "codex")
+	await tap_button("Lamp lore")
+	check("a tap turns to the lamp lore", main.hud.codex_page == Story.FOES.size())
+	await shot("t_codex")
+	await tap_button("Back")
+	check("Back returns to the pause screen", main.hud.modal == "pause")
 	await tap_button("Picture")
 	check("the picture switch flips", main.profile["fast"])
 	await tap_button("Frame rate")
@@ -1031,6 +1679,25 @@ func run() -> void:
 		wt.at = self
 		add_child(wt)
 		wt.run()
+		return
+	if OS.get_cmdline_user_args().has("--balance"):
+		var bal = load("res://scripts/balance.gd").new()
+		bal.main = main
+		bal.at = self
+		add_child(bal)
+		bal.run()
+		return
+	if OS.get_cmdline_user_args().has("--rooms"):
+		var rt = load("res://scripts/roomtest.gd").new()
+		rt.main = main
+		rt.at = self
+		add_child(rt)
+		rt.run()
+		return
+	if OS.get_cmdline_user_args().has("--newreel"):
+		var nr = load("res://scripts/newreel.gd").new()
+		nr.main = main
+		add_child(nr)
 		return
 	if OS.get_cmdline_user_args().has("--wildreel"):
 		var wr = load("res://scripts/wildreel.gd").new()

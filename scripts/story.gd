@@ -28,15 +28,22 @@ const DEPTHS := [
 ## The practice hall used by the showcase recording.
 const GALLERY := {"sub": "", "name": "", "theme": "choir", "music": "depth2", "line": ""}
 
-## Maren left her tools behind her on the way down. One relic per depth.
+## Maren left her tools behind her on the way down. Each relic stand offers
+## the ones Wren does not carry yet, up to three, and she takes one; each
+## answers a different trouble ("role"), and what she passes over waits on a
+## deeper stand. "card" is the short line on its offer card.
 const RELICS := [
-	{"power": "nova", "key": "Q", "name": "Flare Salt",
+	{"power": "nova", "key": "Q", "name": "Flare Salt", "icon": "i_burst", "role": "For when they crowd you",
+		"card": "A ring of fire bursts from the lamp, hurling everything near you back.",
 		"text": "Maren's flare-salt, in its waxed pouch. A pinch on the wick and the lamp roars outward.\n\n\"For when they crowd you. Don't waste it on one.\""},
-	{"power": "spark", "key": "R", "name": "Storm-Glass",
+	{"power": "spark", "key": "R", "name": "Storm-Glass", "icon": "i_fork", "role": "For the pack, at a distance",
+		"card": "Lightning leaps to the nearest foe and on through the pack, stunning each.",
 		"text": "A sealed glass with a thread of caught lightning turning inside it. It leaps to whatever is nearest, and then to whatever is nearest that.\n\n\"It doesn't much care who. Aim it first.\""},
-	{"power": "ward", "key": "F", "name": "Hearth-Stone",
+	{"power": "ward", "key": "F", "name": "Hearth-Stone", "icon": "i_lamp", "role": "For holding your ground",
+		"card": "A circle of hearth-light that slows and scorches foes, and fills your flask.",
 		"text": "A flat grey stone, still warm. Set down, it remembers being a fireplace: the dark slows at its edge, and what crosses it burns.\n\n\"Stand in the light when you can. That's the whole trade.\""},
-	{"power": "match", "key": "", "name": "The Spare Match",
+	{"power": "match", "key": "", "name": "The Spare Match", "icon": "i_flame", "role": "For the blow that ends you",
+		"card": "Once on each depth, a blow that would put you out will not.",
 		"text": "A single long match in a brass case, with her initials scratched into the lid.\n\n\"Lampwrights are just the ones who carry a spare.\"\n\nOnce on each depth, a blow that would put you out will not."},
 ]
 
@@ -53,6 +60,81 @@ const BESTIARY := [
 	{"kind": "slime", "name": "Ink Maw", "desc": "The archive's ink, walking. Splits when slain."},
 	{"kind": "brute", "name": "Bellringer", "desc": "Tolls once, then charges. Make it hit a wall."},
 	{"kind": "wisp", "name": "Cinder Skull", "desc": "Rushes in and bursts. Kill it first or get clear."},
+]
+
+## The bestiary's pages, in the order the depths bring them. "icon" is the
+## sprite shown; "where" is said even of a foe not yet met, as a warning.
+const FOES := [
+	{"kind": "husk", "name": "Hollow Keeper", "icon": "husk_idle", "where": "The Lamp Cellars, and every depth below",
+		"lore": "Keepers who tended the Lantern, buried in their robes. Something down here taught them to stand again. They still remember the swing of a lamp-hook.",
+		"tip": "It leans back before it lunges. Step aside, or strike as it comes and the blow breaks on you."},
+	{"kind": "moth", "name": "Gloam Bat", "icon": "moth0", "where": "The Lamp Cellars, and below",
+		"lore": "They roost in the cold flues and hunt by the warmth of a lamp. Small, quick, and never full.",
+		"tip": "It bites, then wheels away. Swing as it turns back in; a sweep catches it mid-turn."},
+	{"kind": "cantor", "name": "Choir Cantor", "icon": "cantor_idle", "where": "The Buried Choir, and below",
+		"lore": "The choir still sings the one note the Lantern hums. Sung hard enough, the note comes loose and flies.",
+		"tip": "It keeps its distance and throws hexes. Strike a hex as it reaches you and it flies back."},
+	{"kind": "slime", "name": "Ink Maw", "icon": "slime0", "where": "The Drowned Archive, and below",
+		"lore": "Three hundred years of ledgers, drowned. The ink got up and walked. It is still trying to remember what it said.",
+		"tip": "It splits in two when it dies. Back away from the pieces; one sweep clears them."},
+	{"kind": "brute", "name": "Bellringer", "icon": "brute_idle", "where": "The Drowned Archive, and below",
+		"lore": "A bell-warden still in harness. It tolls once before it charges, and it stops for nothing but stone.",
+		"tip": "Put a wall behind you and step aside at the bell. Strike it as it comes and it stops dead."},
+	{"kind": "wisp", "name": "Cinder Skull", "icon": "wisp0", "where": "The Cinder Roots, and below",
+		"lore": "A skull packed with live coals from the roots. It wants to be close to you, and then it wants to be nowhere.",
+		"tip": "It rushes in and bursts. Bolt it from afar, or dash clear before it goes."},
+	{"kind": "gloam", "name": "Gloam", "icon": "husk_idle", "where": "Wherever the lamp burns low",
+		"lore": "A shade in a keeper's shape. It is not a thing that lives in the dark. It is the dark, come close.",
+		"tip": "It comes when the oil runs low, or when the lamp stays hooded. Fill the flask and it comes apart; a flare unmakes it."},
+	{"kind": "warden", "name": "The Hollow Warden", "icon": "warden_idle", "where": "The Heartforge",
+		"lore": "The cage must have its warden, the founders wrote. The forge took the best lampwright Vesper ever had.",
+		"tip": "She signals every blow, and no parry breaks her guard. Watch her hands, not her eyes."},
+]
+
+## Said on the bestiary page of a foe not yet met.
+const FOE_UNMET := "Not yet met. Something down there has no name in these pages, yet."
+
+## What the lamp teaches, each the first time its moment comes (game.teach).
+## "key" is the keyboard glyph and "icon" the stone on a phone (hud._draw_icon);
+## "hint" is said once, in play, and "lore" stays on the Lamp Lore page.
+const LESSONS := [
+	{"id": "parry", "name": "Parry", "key": "LMB", "icon": "strike",
+		"hint": "Strike as it lunges, and the blow breaks on you.",
+		"lore": "Strike a foe mid-lunge or mid-charge. It staggers."},
+	{"id": "reflect", "name": "Return a hex", "key": "LMB", "icon": "strike",
+		"hint": "Swing at a hex as it reaches you. It flies back.",
+		"lore": "A struck hex flies back, hotter, at its singer."},
+	{"id": "snuff", "name": "Hood the lamp", "key": "C", "icon": "snuff",
+		"hint": "Oil running low. Hood the lamp: it fills three times as fast, and foes lose you.",
+		"lore": "Oil fills three times as fast. Foes lose you."},
+	{"id": "dark", "name": "From the dark", "key": "C", "icon": "snuff",
+		"hint": "Unseen, a strike lands twice as hard. Uncover the lamp to flare.",
+		"lore": "Unseen blows land twice as hard. Uncover to flare."},
+	{"id": "flask", "name": "Oil flask", "key": "X", "icon": "flask",
+		"hint": "Throw oil under them. A bolt, or any flame, sets it burning.",
+		"lore": "Pools oil. Any flame sets it burning, you too."},
+	{"id": "echo", "name": "Echo", "key": "SPACE", "icon": "dash",
+		"hint": "Dash right after a flurry, and your last blows happen again.",
+		"lore": "Dash after a flurry; your last blows come again."},
+	{"id": "hollow", "name": "Hollow walls", "key": "LMB", "icon": "strike",
+		"hint": "A draught through the stone. Strike the wall, or bolt it.",
+		"lore": "Listen for a draught. Strike the wall to break in."},
+	{"id": "nova", "name": "Flare Nova", "key": "Q", "icon": "nova",
+		"hint": "Flare Nova: a ring of fire that throws them back. It costs oil.",
+		"lore": "A ring of fire for when they crowd you."},
+	{"id": "spark", "name": "Storm Spark", "key": "R", "icon": "spark",
+		"hint": "Storm Spark: lightning that leaps through the pack. It costs oil.",
+		"lore": "Lightning that leaps from foe to foe."},
+	{"id": "ward", "name": "Hearth Ward", "key": "F", "icon": "ward",
+		"hint": "Hearth Ward: set down a circle of hearth-light. Stand in it.",
+		"lore": "A circle that slows and burns them, and fills the flask."},
+]
+
+## Always on the Lamp Lore page, above what has been taught.
+const BASICS := [
+	{"name": "Strike", "key": "LMB", "icon": "strike", "lore": "Three in a row; the third is heavy."},
+	{"name": "Ember bolt", "key": "RMB", "icon": "bolt", "lore": "Costs oil. Lights the oil and webs it crosses."},
+	{"name": "Dash", "key": "SPACE", "icon": "dash", "lore": "A breath where nothing can touch you."},
 ]
 
 const PAGES := [
@@ -129,34 +211,117 @@ const DEATH_LINES := [
 	"\"The dark isn't cruel, Wren. It's only patient.\"  - Maren",
 ]
 
+## The three faces of the lamp. Every kindling belongs to one, and the offers
+## lean toward the faces Wren has already taken from, so a descent finds its
+## shape by the second or third pick.
+const ASPECTS := {
+	"ember": {"name": "Oil & Ember", "col": Color(1.0, 0.55, 0.22), "icon": "i_flame"},
+	"hearth": {"name": "Wick & Hearth", "col": Color(1.0, 0.9, 0.58), "icon": "i_lamp"},
+	"shade": {"name": "Shade & Echo", "col": Color(0.55, 0.9, 0.95), "icon": "i_eye"},
+}
+
+## "aspect" is the face of the lamp it belongs to (ASPECTS). "max" is how many
+## times a kindling stacks before it stops being offered; "unique" ones come
+## once. The caps keep the strongest stacks in sight of each other:
+##   Keen Edge 3 (x1.95 strike damage), Long Hook 2 (x1.44 reach),
+##   Lamplighter's Stride 3 (x1.40 speed), Stubborn Heart 3 (+3 hearts),
+##   Deep Flask 3 (+105 oil), Kindled Bolt 3 (x2.74 bolt damage),
+##   Forked Flame 2 (5 bolts), Quick Step 2 (dash back in 56% of the time),
+##   Bright Wick 2, Gleaner 2 (+12% hearts), Wick-Thief 3, Lance of Light 3,
+##   Ember Motes 2 (4 motes, 6 with Conflux), Crescent Wave 2, Afterburn 3,
+##   Cinderburst 3, Lodestone Wick 2, Keen Eye 3 (45%), Second Self 2,
+##   Maren's Notes 3 (x2.20 power).
+## A "bargain" has a real cost, written in "cost" and shown on its card; each
+## is unique. Their numbers are in game.gd's apply_boon.
 const BOONS := [
-	{"id": "edge", "name": "Keen Edge", "desc": "Your lamp-hook bites deeper.\n+25% strike damage.", "col": Color(1.0, 0.85, 0.55)},
-	{"id": "reach", "name": "Long Hook", "desc": "A longer haft, a wider sweep.\n+20% strike reach.", "col": Color(1.0, 0.85, 0.55)},
-	{"id": "swift", "name": "Lamplighter's Stride", "desc": "A hundred streets before dusk.\n+12% movement speed.", "col": Color(0.55, 0.9, 0.95)},
-	{"id": "heart", "name": "Stubborn Heart", "desc": "+1 heart, and one heart mended.", "col": Color(0.95, 0.3, 0.4)},
-	{"id": "flask", "name": "Deep Flask", "desc": "+35 oil capacity.\nYour flask is refilled.", "col": Color(1.0, 0.65, 0.15)},
-	{"id": "kindle", "name": "Kindled Bolt", "desc": "Ember bolts burn hotter.\n+40% bolt damage.", "col": Color(1.0, 0.55, 0.15)},
-	{"id": "twin", "name": "Forked Flame", "desc": "Each cast throws two more ember bolts in a fan.", "col": Color(1.0, 0.55, 0.15)},
-	{"id": "step", "name": "Quick Step", "desc": "Your dash recovers 25% faster.", "col": Color(0.55, 0.9, 0.95)},
-	{"id": "wick", "name": "Bright Wick", "desc": "Your lamp burns wider, and oil seeps back faster.", "col": Color(1.0, 0.9, 0.6)},
-	{"id": "glean", "name": "Gleaner", "desc": "The fallen leave hearts behind more often.", "col": Color(0.95, 0.3, 0.4)},
-	{"id": "sear", "name": "Searing Dash", "desc": "Dashing through a foe burns it.", "col": Color(0.55, 0.9, 0.95), "unique": true},
-	{"id": "siphon", "name": "Wick-Thief", "desc": "Every strike that lands returns a little oil.", "col": Color(1.0, 0.65, 0.15)},
-	{"id": "thorn", "name": "Ember Cloak", "desc": "When you are struck, you flare and scorch everything near you.", "col": Color(1.0, 0.45, 0.2), "unique": true},
-	{"id": "pierce", "name": "Lance of Light", "desc": "Ember bolts pass through one more foe.", "col": Color(1.0, 0.55, 0.15)},
-	{"id": "orbit", "name": "Ember Motes", "desc": "Two motes of fire circle you, searing whatever they touch.", "col": Color(1.0, 0.7, 0.25)},
-	{"id": "wave", "name": "Crescent Wave", "desc": "Your heavy third strike throws a blade of light that cuts through everything in its path.", "col": Color(1.0, 0.9, 0.6)},
-	{"id": "burn", "name": "Afterburn", "desc": "Ember bolts set foes alight. They keep burning.", "col": Color(1.0, 0.45, 0.15)},
-	{"id": "shatter", "name": "Cinderburst", "desc": "Slain foes burst, scorching everything beside them.", "col": Color(1.0, 0.45, 0.15)},
-	{"id": "blink", "name": "Double Step", "desc": "You can dash twice before needing to recover.", "col": Color(0.55, 0.9, 0.95), "unique": true},
-	{"id": "trail", "name": "Cinder Trail", "desc": "Your dash leaves a line of fire behind it.", "col": Color(1.0, 0.55, 0.2), "unique": true},
-	{"id": "magnet", "name": "Lodestone Wick", "desc": "Cinders fly to you from much farther off, and the fallen leave more of them.", "col": Color(1.0, 0.8, 0.4)},
-	{"id": "crit", "name": "Keen Eye", "desc": "+15% chance for a strike to land twice as hard.", "col": Color(1.0, 0.85, 0.55)},
-	{"id": "echo", "name": "Second Self", "desc": "Your echo strikes harder and comes back sooner after a dash.", "col": Color(0.55, 0.9, 0.95)},
-	{"id": "focus", "name": "Maren's Notes", "desc": "Flare Nova, Storm Spark and Hearth Ward hit 30% harder and return sooner.", "col": Color(0.7, 0.85, 1.0)},
+	{"id": "edge", "name": "Keen Edge", "desc": "Your lamp-hook bites deeper.\n+25% strike damage.", "col": Color(1.0, 0.85, 0.55), "aspect": "shade", "max": 3},
+	{"id": "reach", "name": "Long Hook", "desc": "A longer haft, a wider sweep.\n+20% strike reach.", "col": Color(1.0, 0.85, 0.55), "aspect": "hearth", "max": 2},
+	{"id": "swift", "name": "Lamplighter's Stride", "desc": "A hundred streets before dusk.\n+12% movement speed.", "col": Color(0.55, 0.9, 0.95), "aspect": "shade", "max": 3},
+	{"id": "heart", "name": "Stubborn Heart", "desc": "+1 heart, and one heart mended.", "col": Color(0.95, 0.3, 0.4), "aspect": "hearth", "max": 3},
+	{"id": "flask", "name": "Deep Flask", "desc": "+35 oil capacity.\nYour flask is refilled.", "col": Color(1.0, 0.65, 0.15), "aspect": "ember", "max": 3},
+	{"id": "kindle", "name": "Kindled Bolt", "desc": "Ember bolts burn hotter.\n+40% bolt damage.", "col": Color(1.0, 0.55, 0.15), "aspect": "ember", "max": 3},
+	{"id": "twin", "name": "Forked Flame", "desc": "Each cast throws two more ember bolts in a fan.", "col": Color(1.0, 0.55, 0.15), "aspect": "ember", "max": 2},
+	{"id": "step", "name": "Quick Step", "desc": "Your dash recovers 25% faster.", "col": Color(0.55, 0.9, 0.95), "aspect": "shade", "max": 2},
+	{"id": "wick", "name": "Bright Wick", "desc": "Your lamp burns wider, and oil seeps back faster.", "col": Color(1.0, 0.9, 0.6), "aspect": "hearth", "max": 2},
+	{"id": "glean", "name": "Gleaner", "desc": "The fallen leave hearts behind more often.", "col": Color(0.95, 0.3, 0.4), "aspect": "hearth", "max": 2},
+	{"id": "sear", "name": "Searing Dash", "desc": "Dashing through a foe burns it.", "col": Color(0.55, 0.9, 0.95), "unique": true, "aspect": "shade"},
+	{"id": "siphon", "name": "Wick-Thief", "desc": "Every strike that lands returns a little oil.", "col": Color(1.0, 0.65, 0.15), "aspect": "shade", "max": 3},
+	{"id": "thorn", "name": "Ember Cloak", "desc": "When you are struck, you flare and scorch everything near you.", "col": Color(1.0, 0.45, 0.2), "unique": true, "aspect": "ember"},
+	{"id": "pierce", "name": "Lance of Light", "desc": "Ember bolts pass through one more foe.", "col": Color(1.0, 0.55, 0.15), "aspect": "hearth", "max": 3},
+	{"id": "orbit", "name": "Ember Motes", "desc": "Two motes of fire circle you, searing whatever they touch.", "col": Color(1.0, 0.7, 0.25), "aspect": "ember", "max": 2},
+	{"id": "wave", "name": "Crescent Wave", "desc": "Your heavy third strike throws a blade of light that cuts through everything in its path.", "col": Color(1.0, 0.9, 0.6), "aspect": "hearth", "max": 2},
+	{"id": "burn", "name": "Afterburn", "desc": "Ember bolts set foes alight. They keep burning.", "col": Color(1.0, 0.45, 0.15), "aspect": "ember", "max": 3},
+	{"id": "shatter", "name": "Cinderburst", "desc": "Slain foes burst, scorching everything beside them.", "col": Color(1.0, 0.45, 0.15), "aspect": "ember", "max": 3},
+	{"id": "blink", "name": "Double Step", "desc": "You can dash twice before needing to recover.", "col": Color(0.55, 0.9, 0.95), "unique": true, "aspect": "shade"},
+	{"id": "trail", "name": "Cinder Trail", "desc": "Your dash leaves a line of fire behind it.", "col": Color(1.0, 0.55, 0.2), "unique": true, "aspect": "ember"},
+	{"id": "magnet", "name": "Lodestone Wick", "desc": "Cinders fly to you from much farther off, and the fallen leave more of them.", "col": Color(1.0, 0.8, 0.4), "aspect": "hearth", "max": 2},
+	{"id": "crit", "name": "Keen Eye", "desc": "+15% chance for a strike to land twice as hard.", "col": Color(1.0, 0.85, 0.55), "aspect": "shade", "max": 3},
+	{"id": "echo", "name": "Second Self", "desc": "Your echo strikes harder and comes back sooner after a dash.", "col": Color(0.55, 0.9, 0.95), "aspect": "shade", "max": 2},
+	{"id": "focus", "name": "Maren's Notes", "desc": "Flare Nova, Storm Spark and Hearth Ward hit 30% harder and return sooner.", "col": Color(0.7, 0.85, 1.0), "aspect": "hearth", "max": 3},
+	# Bargains: each gives more than a kindling should, and takes something for it.
+	{"id": "burnwick", "name": "Burn the Wick", "desc": "Trim nothing. Let it roar.\n+60% bolt damage.",
+		"cost": "Oil seeps back into the flask half as fast.", "col": Color(1.0, 0.5, 0.15), "aspect": "ember",
+		"bargain": true, "unique": true, "icon": "i_flame"},
+	{"id": "pact", "name": "Pact of Embers", "desc": "Something below keeps count.\nFoes leave half again in embers and cinders.",
+		"cost": "Gloams come while the flask is a third full.", "col": Color(1.0, 0.6, 0.3), "aspect": "ember",
+		"bargain": true, "unique": true, "icon": "i_magnet"},
+	{"id": "lens", "name": "Cracked Lens", "desc": "The flaw throws the light wild.\nNova, Spark and Ward hit 50% harder.",
+		"cost": "Each costs 40% more oil.", "col": Color(0.75, 0.88, 1.0), "aspect": "hearth",
+		"bargain": true, "unique": true, "icon": "i_star"},
+	{"id": "leaden", "name": "Leaden Hook", "desc": "Lead in the haft. It lands like a bell.\n+45% strike damage.",
+		"cost": "15% slower on your feet.", "col": Color(1.0, 0.85, 0.55), "aspect": "hearth",
+		"bargain": true, "unique": true, "icon": "i_hook"},
+	{"id": "hollow", "name": "Hollow Heart", "desc": "A heart, for the dark's own eyes.\n+25% chance to strike twice as hard.",
+		"cost": "One heart, gone for this descent.", "col": Color(0.95, 0.3, 0.4), "aspect": "shade",
+		"bargain": true, "unique": true, "icon": "heart2"},
+	{"id": "moth_cloak", "name": "Moth-Eaten Cloak", "desc": "More hole than cloth.\nYour dash carries half again as far.",
+		"cost": "Blows from behind land half a heart harder.", "col": Color(0.55, 0.9, 0.95), "aspect": "shade",
+		"bargain": true, "unique": true, "icon": "i_cloak"},
 ]
+const BARGAIN_COL := Color(1.0, 0.35, 0.3)
 
 const ROMAN := ["I", "II", "III", "IV", "V", "VI", "VII"]
+
+
+# --- Rooms and the second stair -------------------------------------------------
+
+## What each floor's second stair promises for the floor below: the words on
+## its sign, the icon hung over it, and what Wren says when she first sees it.
+const ROUTES := {
+	"shrine": {"name": "A shrine below", "icon": "shrine", "col": Color(0.55, 0.95, 0.88),
+		"line": "Candle wax on the draught from that stair. There's a shrine down there."},
+	"vault": {"name": "A vault below", "icon": "hoard0", "col": Color(1.0, 0.82, 0.4),
+		"line": "Gold scratched on the stair post. Somebody locked something away below."},
+	"blood": {"name": "More foes, richer embers", "icon": "i_burst", "col": Color(1.0, 0.5, 0.35),
+		"line": "That stair stinks of them. More below, and they'll carry more."},
+	"dark": {"name": "A dark floor, richer for it", "icon": "i_dark", "col": Color(0.7, 0.62, 1.0),
+		"line": "No fire down that way at all. Whatever's hoarded there, nobody's touched it."},
+	"whole": {"name": "Come to the forge whole", "icon": "heart2", "col": Color(1.0, 0.55, 0.6),
+		"line": "The long way round to the forge. Quieter. I'd get there with my breath back."},
+}
+## What Wren says on first stepping into a set-aside room.
+const ROOM_LINES := {
+	"shrine": "A keepers' shrine. Still cold-lit. Nothing hunts in here.",
+	"cache": "A whole crate of oil, left lying about. Nobody leaves oil lying about.",
+	"vault": "Barred, and the lock's warm. Something on this floor carries the key.",
+	"dark": "No braziers in here. Whatever they hid, they hid it in the dark.",
+	"altar": "That altar's still wet. It wants paying.",
+}
+## The shrine's three offers. Picking one spends the shrine.
+const SHRINE := [
+	{"id": "blood", "name": "Blood for Oil", "icon": "oil", "col": Color(1.0, 0.6, 0.3),
+		"desc": "Give a heart. The flask fills, and holds 20 more for the rest of the descent."},
+	{"id": "embers", "name": "Embers for Warmth", "icon": "heart2", "col": Color(1.0, 0.5, 0.55),
+		"desc": "Leave 30 embers in the bowl. Every heart mends."},
+	{"id": "pray", "name": "A Quiet Word", "icon": "i_lamp", "col": Color(0.6, 0.9, 0.94),
+		"desc": "Ask nothing. Half a heart mends and the flask fills."},
+]
+const ALTAR := [
+	{"id": "take", "name": "Take the Gift", "icon": "i_star", "col": Color(1.0, 0.35, 0.4),
+		"desc": "A kindling of your choosing. On this floor the lamp no longer refills itself."},
+	{"id": "leave", "name": "Leave It", "icon": "i_cloak", "col": Color(0.62, 0.58, 0.52),
+		"desc": "Walk away. Some gifts are only bait."},
+]
 
 
 # --- Deaths ---------------------------------------------------------------------
@@ -256,6 +421,14 @@ const TOWN := [
 ]
 
 
+# --- The light dial ---------------------------------------------------------------
+
+## The lamp's light tiers as the HUD names them (Game.light_tier: 0 to 3).
+const LIGHT_TIERS := ["Bright", "Dim", "Shadowy", "Dark"]
+## Wren, the first time on a descent her light falls to Dark.
+const LIGHT_DARK_LINE := "This dark gives up what the light walks past. It'll want something back."
+
+
 # --- Deeds ---------------------------------------------------------------------
 
 ## Milestones kept across every descent. Each pays embers once, when first done.
@@ -275,4 +448,25 @@ const FEATS := [
 	{"id": "flit", "name": "A Friend in the Dark", "desc": "Feed a lamp moth, and keep it.", "stat": "flits", "goal": 1, "reward": 20},
 	{"id": "hollow", "name": "Hollow Walls", "desc": "Break into three hidden rooms.", "stat": "secrets", "goal": 3, "reward": 40},
 	{"id": "lamps", "name": "The Street Remembers", "desc": "Light every lamp in town.", "stat": "town", "goal": 9, "reward": 0},
+	{"id": "descent4", "name": "No Way Back", "desc": "Reach the fourth depth on one wick.", "stat": "descent_depth", "goal": 4, "reward": 60},
+	{"id": "descent_win", "name": "One Wick", "desc": "Finish a Descent.", "stat": "descent_wins", "goal": 1, "reward": 250},
+]
+
+
+# --- Ways down -------------------------------------------------------------------
+
+## The two ways to go down, chosen when a slot is started. A Pilgrimage wakes
+## at the last lit lamp; a Descent has one wick, and a fall ends it.
+const MODES := {
+	"pilgrim": {"name": "Pilgrimage", "badge": "PILGRIMAGE", "icon": "lamp1", "col": Color(0.6, 0.9, 0.94),
+		"desc": "Every lamp you light keeps you.\n\nFall, and you wake beside the last one with everything you carried."},
+	"descent": {"name": "Descent", "badge": "DESCENT  -  ONE WICK", "icon": "i_flame", "col": Color(1.0, 0.45, 0.35),
+		"desc": "One wick, all the way down.\n\nFall, and all you carried is lost. Embers burn half again as bright."},
+}
+
+## Said on the death screen when a Descent ends, under the tally.
+const DESCENT_END := [
+	"\"Nobody goes down twice the same way. Go down again.\"  - Maren",
+	"\"The wick's spent. The lamp isn't.\"  - Maren",
+	"\"Count what you learned, not what you lost.\"  - Maren",
 ]

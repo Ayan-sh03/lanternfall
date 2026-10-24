@@ -11,6 +11,7 @@ const SurfS = preload("res://scripts/surfaces.gd")
 const EchoS = preload("res://scripts/echo.gd")
 const Nemesis = preload("res://scripts/nemesis.gd")
 const MothS = preload("res://scripts/moth.gd")
+const RoomsS = preload("res://scripts/rooms.gd")
 
 const TS := 16
 const AMBIENT := Color(0.14, 0.14, 0.23)
@@ -46,6 +47,10 @@ var mini_tex: ImageTexture
 var stairs_tile := Vector2i(-1, -1)
 var exit_room := -1
 var sealed := false
+## Set-aside rooms and the second stair (rooms.gd).
+var rooms = null
+## What the stair Wren came down by promised for this floor ("" for the usual one).
+var floor_route := ""
 
 # --- scene ---
 var map_root: Node2D
@@ -105,8 +110,16 @@ var stats := {"dmg": 10.0, "reach": 1.0, "speed": 80.0, "bolt_dmg": 13.0, "bolt_
 	# Kindlings that combine two others (Story.DUOS).
 	"wildfire": 0.0, "starfall": 0.0, "flashstep": 0.0, "chainburst": 0.0, "riposte": 0.0, "mote_k": 1.0,
 	# Wren's echo: how hard its blows land, and how soon another can follow.
-	"echo": 0.5, "echo_cd": 3.0}
+	"echo": 0.5, "echo_cd": 3.0,
+	# What the bargains (Story.BOONS) change: how far a dash carries, the extra
+	# a blow from behind lands, what a power costs, embers paid per kill, and
+	# how full the flask can be when the gloams start to come.
+	"dash_len": 1.0, "frail": 0, "power_cost": 1.0, "ember_k": 1.0, "gloam_k": 1.0}
 var boons: Array = []
+## The cards on the table at the last offer (kindlings or relics), by id, and
+## which kind it was; for the bots and their tallies.
+var offer: Array = []
+var offer_kind := ""
 var atk_cd := 0.0
 var bolt_cd := 0.0
 ## Input buffers: a press made slightly too early is remembered for a moment.
@@ -147,7 +160,6 @@ var dead := false
 var death_t := 0.0
 var death_shown := false
 var hitstop := 0.0
-var shake := 0.0
 var anim_t := 0.0
 var run_time := 0.0
 var kills := 0
@@ -176,6 +188,45 @@ var gallery_theme := ""
 var slow_t := 0.0
 ## The camera's shove in the direction of a blow, easing back to centre.
 var cam_punch := Vector2.ZERO
+## Shake is kept as trauma, from 0 to 1, which every blow tops up and which
+## drains by itself. The view moves by trauma squared, so a big blow jolts and
+## then settles fast, and a small one barely stirs it.
+var trauma := 0.0
+## How far the shake has moved the view this frame, in whole art pixels.
+var shake_off := Vector2.ZERO
+## The line a blow of Wren's own rocks the view along (zero: any way).
+var shake_axis := Vector2.ZERO
+var _shake_f := -1
+var _shake_base := 0.0
+var _shake_clock := 0.0
+var _shake_from := Vector2.ZERO
+var _shake_to := Vector2.ZERO
+## Shake has its own dice, so how often the camera rolls never changes the game's.
+var _shake_rng := RandomNumberGenerator.new()
+## Hitstop spent lately and not yet paid back; while it is high, new freezes are cut short.
+var stop_debt := 0.0
+var _stop_f := -1
+var _stop_debt0 := 0.0
+## Peak shake, in art pixels, at full trauma (the Warden falling).
+const SHAKE_PX := 12.0
+## How fast trauma drains, per second.
+const TRAUMA_DECAY := 2.4
+## Stacked blows never shake harder than this, unless one blow alone does.
+const TRAUMA_STACK := 0.75
+## How often the shake picks a new way to lean, per second.
+const SHAKE_HZ := 30.0
+## The pause screen's shake setting: off, low, full.
+const SHAKE_LEVELS := [0.0, 0.5, 1.0]
+## No ordinary blow holds the frame longer than this.
+const HITSTOP_CAP := 0.12
+## Freezes in quick succession shrink as their debt nears this, and the debt
+## drains at STOP_DRAIN seconds per second.
+const STOP_BUDGET := 0.3
+const STOP_DRAIN := 0.3
+## How long a kill holds the frame, by the blow that did it. Only Wren's own
+## blows stop the world; fire, shrapnel and her familiars' work do not, and a
+## bolt holds it less than the staff.
+const KILL_STOP := {"hit": 0.05, "hit_heavy": 0.05, "crit": 0.05, "hit_bolt": 0.03, "zap_hit": 0.04}
 ## Wren's squash and stretch: how hard, and how long since it began.
 var sq_amp := 0.0
 var sq_t := 9.0
@@ -185,6 +236,22 @@ var pix_cache := {}
 const GLOAM_LOW := 0.2
 const GLOAM_SAFE := 0.4
 var gloam_t := 0.0
+## The light as a risk dial, after Darkest Dungeon's torch: the lower the lamp
+## burns, the more the dark gives up, and the harder it bites. Tiers run 0 Bright,
+## 1 Dim, 2 Shadowy, 3 Dark (see light_tier). Dark begins where the gloams do;
+## Shadowy is the band where shades already out linger but no new ones come.
+const LIGHT_DIM_AT := 0.65
+const LIGHT_DARK := 3
+## A hooded lamp counts as Dark only once the dark has settled round her, the
+## same grace the gloams give, so flicking the hood over a chest buys nothing.
+const SNUFF_SETTLE := 3.0
+## What each tier pays: drop chances and amounts, the cinders a kill leaves
+## (a little more experience), and how long a foe that wakes on her rushes.
+const LOOT_BY_TIER := [1.0, 1.25, 1.6, 2.0]
+const XP_BY_TIER := [1.0, 1.05, 1.15, 1.3]
+const AMBUSH_BY_TIER := [0.0, 0.0, 0.8, 1.6]
+## Oil spent to bring a lamp back after it has been properly dark.
+const RELIGHT_COST := 10.0
 ## What last struck Wren (a key of Story.CAUSES), for the death screen.
 var last_cause := ""
 var riposte_t := 0.0
@@ -223,6 +290,10 @@ var god := false
 var bot_mv := Vector2.ZERO
 var bot_atk := false
 var bot_bolt := false
+## A balance run (balance.gd) hands each game its tally to count into, and a
+## policy for the bot's choices. Normal play leaves both unset.
+var metrics = null
+var bot_policy := Callable()
 
 
 ## restore: a save to resume from. prepared: starting fresh at a chosen depth,
@@ -344,15 +415,23 @@ func load_floor(d: int, restore: Dictionary = {}) -> void:
 	# Each floor is grown from one seed, so a save only has to remember the seed
 	# to get the same floor back.
 	floor_seed = int(restore.get("seed", rng.randi()))
+	# The stair taken down is part of the floor's recipe, as the seed is.
+	if not restore.is_empty():
+		floor_route = str(restore.get("route", ""))
+	if rooms == null:
+		rooms = RoomsS.new()
+		rooms.g = self
+		add_child(rooms)
 	var grng := RandomNumberGenerator.new()
 	grng.seed = floor_seed
-	dungeon = Dungeon.generate(d, grng)
+	dungeon = Dungeon.generate(d, grng, floor_route)
 	W = dungeon["w"]
 	H = dungeon["h"]
 	tiles = dungeon["tiles"]
 	room_id = dungeon["room_id"]
 	exit_room = dungeon["exit_room"]
 	_carve_secrets()
+	rooms.setup(restore)
 	if moth == null and d > 0 and d < Story.DEPTHS.size():
 		_place_wild_moth()
 	map_theme = info["theme"]
@@ -406,6 +485,7 @@ func load_floor(d: int, restore: Dictionary = {}) -> void:
 		var sd: Dictionary = slist[i]
 		var e = spawn_enemy(sd["kind"], tile_center(sd["tile"]), sd["room"], sd.get("elite", false))
 		e.spawn_idx = i
+	rooms.after_load()
 	surf.grow(floor_seed)
 	_place_nemesis()
 
@@ -419,8 +499,9 @@ func load_floor(d: int, restore: Dictionary = {}) -> void:
 					fog_a[i] = 0.6
 					fog_img.set_pixel(i % W, int(i / float(W)), Color(FOGC.r, FOGC.g, FOGC.b, 0.6))
 					mini_img.set_pixel(i % W, int(i / float(W)), MINI_FLOOR if tiles[i] == 1 else MINI_WALL)
-			if stairs_tile.x >= 0 and seen[stairs_tile.y * W + stairs_tile.x] == 1:
-				mini_img.set_pixel(stairs_tile.x, stairs_tile.y, MINI_STAIRS)
+			for st in [stairs_tile, rooms.route_tile]:
+				if st.x >= 0 and seen[st.y * W + st.x] == 1:
+					mini_img.set_pixel(st.x, st.y, MINI_STAIRS)
 			fog_tex.update(fog_img)
 			mini_tex.update(mini_img)
 
@@ -445,6 +526,8 @@ func load_floor(d: int, restore: Dictionary = {}) -> void:
 		hud.floor_card(info["sub"], info["name"])
 		if restore.is_empty():
 			hud.say(info["line"], 5.0)
+	if restore.is_empty():
+		rooms.arrived()
 	Sfx.play_music(info["music"])
 	if d > 0:
 		main.reached(d)
@@ -470,7 +553,7 @@ func save_game(lamp_idx: int) -> void:
 	for p in props:
 		if p["done"] or p.has("read"):
 			done.append(p["idx"])
-	main.write_save({"v": 1, "depth": depth, "name": Story.DEPTHS[depth - 1]["name"], "seed": floor_seed,
+	main.write_save({"v": 1, "depth": depth, "name": Story.DEPTHS[depth - 1]["name"], "seed": floor_seed, "route": floor_route,
 		"lamp_idx": lamp_idx, "hp": hp, "max_hp": max_hp, "oil": oil, "max_oil": max_oil, "xp": xp,
 		"level": level, "xp_next": xp_next, "stats": stats.duplicate(), "boons": boons.duplicate(),
 		"powers": powers.duplicate(), "spare": spare_match, "match_used": match_used, "kills": kills,
@@ -553,11 +636,13 @@ func _prepare(d: int) -> void:
 		grant_power(Story.RELICS[i]["power"])
 	var picks := 2 * (d - 1)
 	for i in picks:
+		# Drawn the way the offers lean, so the build has a shape; never a
+		# bargain, since nobody chose to pay for it.
 		var pool: Array = []
 		for b in Story.BOONS:
-			if not (b.get("unique", false) and boons.has(b["id"])):
-				pool.append(b["id"])
-		apply_boon(pool[rng.randi() % pool.size()])
+			if can_offer(b) and not b.get("bargain", false):
+				pool.append(b)
+		apply_boon(_draw_leaning(pool, aspect_counts())["id"])
 	level = 1 + picks
 	xp = 0
 	xp_next = 14 + level * 8
@@ -580,6 +665,8 @@ func _restore_prop(p: Dictionary) -> void:
 			if p.has("light"):
 				lights.erase(p["light"])
 			p["node"].queue_free()
+		"shrine", "cache", "hoard", "altar", "vgate":
+			rooms.restore_prop(p)
 
 
 func _light_lamp(p: Dictionary) -> void:
@@ -705,8 +792,15 @@ func _add_prop(pd: Dictionary, idx: int = -1) -> void:
 			p["light"] = _light(node, Color(1.0, 0.8, 0.45), 0.9, 1.0, Vector2(0, -10))
 		"stairs":
 			s.texture = Art.tex["stairs"]
-			stairs_tile = pd["tile"]
+			if pd.has("route"):
+				# The second way down, and what it promises.
+				p["route"] = pd["route"]
+				rooms.route_tile = pd["tile"]
+			else:
+				stairs_tile = pd["tile"]
 			p["glow"] = _glow(node, Color(1.0, 0.15, 0.1, 0.7), 0.5, Vector2.ZERO)
+		"shrine", "cache", "hoard", "altar", "vgate", "sign", "mark":
+			rooms.add_prop(p, pd)
 		"moth":
 			s.texture = MothS.make_frames()[0]
 			s.material = Art.mat_unlit
@@ -725,7 +819,8 @@ func _add_prop(pd: Dictionary, idx: int = -1) -> void:
 			p["glow"] = orb
 			p["halo"] = _glow(node, Color(1.0, 0.55, 0.2, 0.5), 1.1, Vector2(0, -6))
 			p["light"] = _light(node, Color(1.0, 0.7, 0.4), 1.2, 1.6, Vector2(0, -6))
-	if type == "stairs":
+	# Stairs and door sigils lie on the floor.
+	if type == "stairs" or type == "mark":
 		map_root.add_child(node)
 	else:
 		ents.add_child(node)
@@ -885,8 +980,9 @@ func _update_fov() -> void:
 			x += dx
 			y += dy
 	if dirty:
-		if stairs_tile.x >= 0 and seen[stairs_tile.y * W + stairs_tile.x] == 1:
-			mini_img.set_pixel(stairs_tile.x, stairs_tile.y, MINI_STAIRS)
+		for st in [stairs_tile, rooms.route_tile]:
+			if st.x >= 0 and seen[st.y * W + st.x] == 1:
+				mini_img.set_pixel(st.x, st.y, MINI_STAIRS)
 		mini_tex.update(mini_img)
 
 
@@ -933,8 +1029,13 @@ func _tick(dt: float) -> void:
 	if hud.blocking():
 		_update_camera(dt)
 		return
+	stop_debt = maxf(0.0, stop_debt - dt * STOP_DRAIN)
 	if hitstop > 0.0:
 		hitstop -= dt
+		# The world holds still, but the shake runs on through the freeze: that
+		# is what makes the pause read as a blow landing and not a stall.
+		_update_shake(dt)
+		cam.offset = shake_off + cam_punch
 		return
 	if slow_t > 0.0:
 		slow_t -= dt
@@ -981,6 +1082,7 @@ func _tick(dt: float) -> void:
 	pt = _pt("purge", pt)
 	_update_events(dt)
 	pt = _pt("events", pt)
+	_update_teach(dt)
 
 
 ## Profiling: microseconds spent in each part of the update, summed while on.
@@ -1221,6 +1323,28 @@ func _bot_think() -> void:
 		cast_ward()
 
 
+## Counts something toward a balance run's statistics; does nothing in play.
+func note_metric(key: String, amount: float = 1.0) -> void:
+	if metrics != null:
+		metrics[key] = metrics.get(key, 0.0) + amount
+
+
+## Which of a choice's options the bot takes (the HUD's auto mode asks): the
+## first, unless a balance run set a policy. Offers and picks are counted by id.
+func bot_choose(options: Array) -> int:
+	var i := 0
+	if bot_policy.is_valid() and not options.is_empty():
+		i = clampi(int(bot_policy.call(options)), 0, options.size() - 1)
+	if metrics != null:
+		for k in options.size():
+			var id: String = str(options[k].get("id", "")) if options[k] is Dictionary else ""
+			if id != "":
+				note_metric("offer:" + id)
+				if k == i:
+					note_metric("pick:" + id)
+	return i
+
+
 # --- The lamp snuffed, the flask thrown, the echo -----------------------------------
 
 func toggle_snuff() -> void:
@@ -1253,6 +1377,11 @@ func relight() -> void:
 		return
 	snuffed = false
 	_update_fov()
+	# A wick left dark has to catch again, and a new flame drinks oil. This is
+	# the price on hooding the lamp for the dark's loot and uncovering it for the
+	# next fight; a slip of the key (under half a second) costs nothing.
+	if snuff_t >= 0.5:
+		oil = maxf(0.0, oil - RELIGHT_COST)
 	if snuff_t >= 0.5 and flare_cd <= 0.0:
 		_flare()
 	else:
@@ -1301,6 +1430,7 @@ func throw_flask() -> void:
 			hud.float_text(ppos + Vector2(0, -26), "NO OIL", Color(0.8, 0.6, 0.4))
 		return
 	oil -= FLASK_COST
+	note_metric("oil_flask", FLASK_COST)
 	flask_cd = 0.6
 	var o := pcenter()
 	var want: Vector2
@@ -1497,7 +1627,7 @@ func open_secret(sc: Dictionary, quiet: bool = false) -> void:
 	fx.spark(wc + Vector2(0, -6), Color(1.0, 0.8, 0.45), 10, 60.0, 0.5, 1.5)
 	scorch(wc, 10.0)
 	add_shake(5.0)
-	hitstop = maxf(hitstop, 0.08)
+	freeze(0.08)
 	Sfx.play("boom", -6.0)
 	Sfx.play("thud", -2.0)
 	hud.say("The wall was hollow.", 3.0, hud.C_EMBER)
@@ -1603,7 +1733,8 @@ func _nemesis_fell(e) -> void:
 	hud.float_text(e.position + Vector2(0, -e.cy * 2.0 - 12.0), "GRUDGE SETTLED", Color(1.0, 0.85, 0.4))
 	hud.flash_white(0.7)
 	slow_t = maxf(slow_t, 0.7)
-	hitstop = 0.15
+	# A story beat, not a blow: it may hold longer than any hit.
+	freeze(0.15, 0.15)
 	Sfx.play("chime", -2.0)
 	drop("heart", e.position)
 	drop("heart", e.position + Vector2(6, 0))
@@ -1621,9 +1752,10 @@ func squash(amp: float) -> void:
 	sq_t = 0.0
 
 
-## Shoves the camera along a direction; it springs back by itself.
+## Shoves the camera along a direction; it springs back by itself. Shoves from
+## many blows at once add up only so far.
 func punch(dir: Vector2, amt: float) -> void:
-	cam_punch += dir.normalized() * amt
+	cam_punch = (cam_punch + dir.normalized() * amt * shake_scale()).limit_length(8.0)
 
 
 func try_dash() -> void:
@@ -1634,7 +1766,7 @@ func try_dash() -> void:
 		return
 	dash_buf = 0.0
 	dash_dir = last_mv if last_mv != Vector2.ZERO else aim
-	dash_t = 0.16
+	dash_t = 0.16 * stats["dash_len"]
 	dash_stock -= 1
 	if dash_cd <= 0.0:
 		dash_cd = stats["dash_cd"]
@@ -1728,15 +1860,18 @@ func do_slash() -> void:
 	if hit > 0:
 		if heavy:
 			kick(0.05)
-		hitstop = 0.08 if heavy else 0.04
+		# One freeze for the swing, however many it struck: the hardest blow's.
+		var stop := 0.08 if heavy else 0.04
 		# A blow that kills, or lands twice as hard, holds the frame a little longer.
 		if killed > 0 and (heavy or crits > 0):
-			hitstop = 0.12
+			stop = 0.12
 			hud.flash_white(0.6)
 		elif crits > 0:
-			hitstop = 0.1
+			stop = 0.1
+		freeze(stop)
 		punch(aim, 3.5 if heavy else 1.8)
-		add_shake(4.0 if heavy else 2.0)
+		# A heavy swing rocks the view along the blow, not every which way.
+		add_shake(4.0 if heavy else 2.0, aim if heavy else Vector2.ZERO)
 		oil = minf(max_oil, oil + stats["siphon"] * hit)
 
 
@@ -1745,7 +1880,9 @@ func do_bolt() -> void:
 	if snuffed:
 		relight()
 	echo_blows.append({"t": echo_clock, "k": "bolt", "a": aim, "heavy": false})
-	oil -= bolt_cost()
+	note_metric("oil_bolt", bolt_cost())
+	# Relighting may have taken the oil this bolt was counted against.
+	oil = maxf(0.0, oil - bolt_cost())
 	bolt_cd = 0.38
 	bolt_buf = 0.0
 	pose = "point"
@@ -1796,11 +1933,18 @@ func hurt_player(amount: int, from: Vector2, kb: float = 170.0, src = null) -> b
 	elif src != null and is_instance_valid(src):
 		last_cause = src.kind
 		last_by_nem = src.nemesis
+	# The Moth-Eaten Cloak: a blow from behind her finds the holes.
+	if stats["frail"] > 0 and (from - ppos).dot(aim) < 0.0:
+		amount += stats["frail"]
 	# No single blow takes Wren from more than one heart straight to nothing.
 	var spared: bool = amount >= hp and hp > 2
+	var hp_was := hp
 	hp -= amount
 	if spared:
 		hp = 1
+	if metrics != null:
+		note_metric("hp_lost", hp_was - maxi(hp, 0))
+		note_metric("hurt_by:" + (last_cause if last_cause != "" else "?"), hp_was - maxi(hp, 0))
 	invuln = 0.9
 	if hp > 0 and hp <= 2:
 		# The last heart: a longer breath before the next blow can land.
@@ -1808,16 +1952,21 @@ func hurt_player(amount: int, from: Vector2, kb: float = 170.0, src = null) -> b
 		slow_t = maxf(slow_t, 0.3)
 	flash = 1.0
 	pknock = (ppos - from).normalized() * kb
-	add_shake(5.0)
+	# A charge or a blast lands harder than a claw, and the camera says so.
+	var big: bool = amount >= 2 or kb >= 240.0
+	add_shake(7.0 if big else 5.0)
 	squash(-0.28)
-	punch(ppos - from, 4.0)
-	hitstop = 0.06
-	hud.hurt = 1.0
+	punch(ppos - from, 7.0 if big else 4.0)
+	# Fire does not stop the world, and a hex (src names its kind) holds it less
+	# than a blow struck up close.
+	if not (src is String and src == "fire"):
+		freeze(0.04 if src is String else (0.09 if big else 0.06))
+	hud.hurt_hit(1.0 - float(maxi(hp, 0)) / maxf(float(max_hp), 1.0))
 	Sfx.play("sting", -8.0)
 	Sfx.play("punch")
 	if hp > 0:
 		Sfx.play("hurt_voice", 0.0, 0.05)
-	kick(0.06)
+	kick(0.1 if big else 0.06)
 	if hp <= 0 and spare_match and not match_used:
 		# The spare match: once per depth, the lamp relights itself.
 		match_used = true
@@ -1859,11 +2008,50 @@ func tidy() -> void:
 	fires.clear()
 
 
-func add_shake(a: float) -> void:
-	shake = maxf(shake, a)
-	# On a phone, whatever shakes the screen is also felt in the hand.
-	if pad != null:
+## Shakes the view by up to `a` art pixels at its peak (before the player's
+## setting). Blows in the same frame count once, by the biggest; blows in a row
+## stack, a quarter of the smaller on the larger, up to TRAUMA_STACK, so twenty
+## hits at once shake no harder than the worst of them. dir, if given, is the
+## line to rock along.
+func add_shake(a: float, dir: Vector2 = Vector2.ZERO) -> void:
+	var t := sqrt(clampf(a / SHAKE_PX, 0.0, 1.0))
+	var f := Engine.get_process_frames()
+	var fresh := f != _shake_f
+	if fresh:
+		_shake_f = f
+		_shake_base = trauma
+	var nt := minf(maxf(_shake_base, t) + 0.25 * minf(_shake_base, t), maxf(t, TRAUMA_STACK))
+	if dir != Vector2.ZERO:
+		shake_axis = dir.normalized()
+	elif t > trauma:
+		shake_axis = Vector2.ZERO
+	trauma = maxf(trauma, nt)
+	# On a phone, whatever shakes the screen is also felt in the hand (once a frame).
+	if pad != null and fresh:
 		hud.buzz(int(clampf(a * 6.0, 12.0, 70.0)))
+
+
+## The player's shake setting as a scale: 0 off, 0.5 low, 1 full.
+func shake_scale() -> float:
+	return SHAKE_LEVELS[clampi(int(main.profile.get("shake", 2)), 0, 2)]
+
+
+## Hitstop: the world holds still for a moment so a blow lands. Only Wren's own
+## blows, and blows on Wren, call this. Many hits in one frame hold for the
+## longest of them, never the sum, and none for more than cap; a run of freezes
+## close together is cut shorter, so a crowd does not turn a fight into a stutter.
+func freeze(t: float, cap: float = HITSTOP_CAP) -> void:
+	var f := Engine.get_process_frames()
+	if f != _stop_f:
+		_stop_f = f
+		_stop_debt0 = stop_debt
+	t = minf(t, cap)
+	# A story beat (a cap above the ordinary one) keeps its full length.
+	if cap <= HITSTOP_CAP:
+		t *= clampf(1.0 - _stop_debt0 / STOP_BUDGET, 0.3, 1.0)
+	if t > hitstop:
+		hitstop = t
+		stop_debt = maxf(stop_debt, _stop_debt0 + t)
 
 
 func scorch(pos: Vector2, r: float) -> void:
@@ -1880,6 +2068,91 @@ func _say_once(key: String, text: String) -> void:
 	hud.say(text)
 
 
+# --- Teaching, the first time each thing comes up -----------------------------------
+
+## How often the moments worth a lesson are looked for, and the hollow walls listened at.
+var teach_t := 0.0
+var draught_t := 0.0
+## True once every lesson is known and every foe met, so the look-out can stop.
+var teach_done := false
+
+
+## Shows a lesson the first time its moment comes on this profile, and never
+## again (the bestiary's Lamp Lore page keeps them). A lesson still on the
+## screen makes the next one wait for its own moment to come round again.
+func teach(id: String) -> bool:
+	if main.knows(id) or hud.lesson_busy():
+		return false
+	main.learn(id)
+	hud.lesson(id)
+	return true
+
+
+## A few times a second: is something happening that the lamp has not taught
+## yet, and has a new kind of foe come into sight? Also, near a hollow wall,
+## a draught and a trickle of grit, so it can be found in the flat view too.
+func _update_teach(dt: float) -> void:
+	teach_t -= dt
+	if teach_t > 0.0 or dead or depth <= 0:
+		return
+	teach_t = 0.25
+	_listen_hollow()
+	if teach_done:
+		return
+	var seen: Array = main.profile["seen"]
+	for e in enemies:
+		if not e.dead and e.visible and not seen.has(e.kind) and e.kind != "slimelet":
+			main.saw(e.kind)
+	if hud.lesson_busy():
+		return
+	var taught: Array = main.profile["taught"]
+	if not taught.has("parry"):
+		for e in enemies:
+			if not e.dead and e.visible and e.state == "wind" and (e.kind == "husk" or e.kind == "brute") \
+					and (e.position - ppos).length() < 90.0 and teach("parry"):
+				return
+	if not taught.has("reflect"):
+		for s in shots:
+			if not s["friendly"] and (s["pos"] - ppos).length() < 110.0 and teach("reflect"):
+				return
+	var k := oil / maxf(max_oil, 1.0)
+	if not snuffed and k < 0.3 and teach("snuff"):
+		return
+	if snuffed and snuff_t > 1.0 and teach("dark"):
+		return
+	var near := 0
+	if not taught.has("flask") or not taught.has("echo"):
+		for e in enemies:
+			if not e.dead and e.awake and e.visible and (e.position - ppos).length() < 110.0:
+				near += 1
+	if near >= 3 and oil >= FLASK_COST + 15.0 and teach("flask"):
+		return
+	# Swings in the last moment, and a fight still around her: an echo would land.
+	if near >= 1 and echo_blows.size() >= 2 and echo_cd <= 0.0 and dash_stock > 0 and teach("echo"):
+		return
+	for id in powers:
+		if powers[id] and teach(id):
+			return
+	if taught.size() >= Story.LESSONS.size() and seen.size() >= Story.FOES.size():
+		teach_done = true
+
+
+func _listen_hollow() -> void:
+	draught_t -= 0.25
+	if draught_t > 0.0:
+		return
+	for sc in secrets:
+		if sc["open"]:
+			continue
+		var f: Vector2i = sc["f"]
+		if vis[f.y * W + f.x] == 1 and (tile_center(f) - ppos).length() < 64.0:
+			draught_t = 3.5
+			var wc := tile_center(sc["w"])
+			Sfx.play("thud", -24.0, 0.3)
+			fx.spark(wc + Vector2(0, -12), Color(0.62, 0.57, 0.5, 0.8), 4, 10.0, 0.9, 1.5, 70.0)
+			teach("hollow")
+
+
 # --- Enemies, shots, loot -------------------------------------------------------
 
 func on_wake(_e) -> void:
@@ -1894,11 +2167,19 @@ func on_wake(_e) -> void:
 
 func enemy_died(e) -> void:
 	kills += 1
+	if metrics != null:
+		note_metric("kill:" + e.kind)
 	main.tally("kills")
+	# Read the light once: what this kill pays depends on how dark it was.
+	var tier := light_tier()
+	var loot: float = LOOT_BY_TIER[tier]
 	if e.xp > 0:
-		main.bank(e.xp)
-	hitstop = maxf(hitstop, 0.05)
-	add_shake(2.5)
+		main.bank(roundi(e.xp * loot * stats["ember_k"]))
+	# Only a kill by Wren's own hand holds the frame; one that burned or was
+	# caught in a blast still shakes, but less.
+	var stop: float = KILL_STOP.get(e.last_blow, 0.0)
+	freeze(stop)
+	add_shake(2.5 if stop > 0.0 else 1.5)
 	Sfx.play("kill", -4.0)
 	fx.spark(e.center(), e.tint, 6, 95.0, 0.4, 2.0)
 	_disintegrate(e)
@@ -1920,11 +2201,11 @@ func enemy_died(e) -> void:
 	if e.spawn_idx >= 0:
 		dead_spawns.append(e.spawn_idx)
 	if e.xp > 0:
-		drop("cinder", e.center(), int(ceil(e.xp * stats["xp_mult"])))
+		drop("cinder", e.center(), int(ceil(e.xp * stats["xp_mult"] * XP_BY_TIER[tier])))
 		var pity := 0.1 if hp <= 2 else 0.0
-		if rng.randf() < stats["heart_drop"] + pity:
+		if rng.randf() < (stats["heart_drop"] + pity) * loot:
 			drop("heart", e.position)
-		elif rng.randf() < 0.1:
+		elif rng.randf() < 0.1 * loot:
 			drop("oil", e.position)
 	if e.kind == "slime":
 		for k in 2:
@@ -2048,15 +2329,42 @@ func _reflect(s: Dictionary) -> void:
 	s["hit"] = []
 	s["node"].modulate = gold
 	fx.impact(s["pos"], dir.angle(), gold, 1.1)
-	hitstop = maxf(hitstop, 0.05)
+	freeze(0.04)
 	Sfx.play("deflect", -2.0, 0.15)
 	_say_once("reflect", "Struck back. Let it learn what it threw.")
 	main.tally("reflects")
 
 
+## How dark Wren walks, from 0 Bright to 3 Dark (LIGHT_DARK). The one place the
+## tier is worked out: loot, ambushes, the gloams' bark and the HUD all ask here.
+func light_tier() -> int:
+	if snuffed and snuff_t >= SNUFF_SETTLE:
+		return LIGHT_DARK
+	var k := oil / maxf(max_oil, 1.0)
+	if k <= GLOAM_LOW:
+		return LIGHT_DARK
+	if k <= GLOAM_SAFE:
+		return 2
+	if k <= LIGHT_DIM_AT:
+		return 1
+	return 0
+
+
+## What the dark pays right now, as a multiplier on drops (1.0 to 2.0).
+func loot_mult() -> float:
+	return LOOT_BY_TIER[light_tier()]
+
+
+## How long a foe that notices Wren now rushes her (0 in good light).
+func ambush_time() -> float:
+	return AMBUSH_BY_TIER[light_tier()]
+
+
 func _update_gloam(dt: float) -> void:
 	if depth <= 0 or dead or god:
 		return
+	if light_tier() == LIGHT_DARK:
+		_say_once("dark_tier", Story.LIGHT_DARK_LINE)
 	var k := oil / maxf(max_oil, 1.0)
 	var shades: Array = []
 	for e in enemies:
@@ -2065,7 +2373,7 @@ func _update_gloam(dt: float) -> void:
 	# Snuffed by choice, the dark comes for her whatever the flask holds;
 	# a few seconds' grace first, then faster the longer she hides.
 	if snuffed:
-		if snuff_t < 3.0:
+		if snuff_t < SNUFF_SETTLE:
 			return
 		gloam_t -= dt * (1.0 + minf(snuff_t / 8.0, 1.5))
 		if gloam_t > 0.0 or shades.size() >= 3:
@@ -2081,7 +2389,7 @@ func _update_gloam(dt: float) -> void:
 			_disintegrate(e)
 		gloam_t = 2.0
 		return
-	if k > GLOAM_LOW:
+	if k > GLOAM_LOW * stats["gloam_k"]:
 		return
 	gloam_t -= dt
 	if gloam_t > 0.0 or shades.size() >= 3:
@@ -2280,32 +2588,230 @@ func _level_up() -> void:
 	_offer_boons("The warmth below reaches up to you", "Level %d  -  choose a kindling" % level)
 
 
+## How hard the offers lean toward an aspect Wren has taken from: each
+## kindling she holds of it adds this to its cards' weight (counting up to
+## three), against 1 for any card. With two of one aspect held and the pool
+## about even, roughly three in four of the leaning cards are of it.
+const ASPECT_PULL := 2.0
+
+
 func _offer_boons(title: String, sub: String) -> void:
-	var pool: Array = []
-	for b in Story.BOONS:
-		if b.get("unique", false) and boons.has(b["id"]):
-			continue
-		pool.append(b)
-	var opts: Array = []
-	for i in mini(4 if main.has_lamp("chapel") else 3, pool.size()):
-		var j := rng.randi() % pool.size()
-		opts.append(pool[j])
-		pool.remove_at(j)
-	# Once Wren holds both halves of a pair, its combined kindling may take a place.
+	var opts := draw_offer(4 if main.has_lamp("chapel") else 3)
+	# Once Wren holds both halves of a pair, its combined kindling may take a
+	# place; never the card from another aspect.
 	var ready: Array = []
 	for d in Story.DUOS:
 		if not boons.has(d["id"]) and boons.has(d["needs"][0]) and boons.has(d["needs"][1]):
 			ready.append(d)
 	if not ready.is_empty() and rng.randf() < 0.65:
 		var d: Dictionary = ready[rng.randi() % ready.size()]
-		opts[rng.randi() % opts.size()] = {"id": d["id"], "name": d["name"], "desc": d["desc"],
+		var card := {"id": d["id"], "name": d["name"], "desc": d["desc"], "tag": "Two kindlings, made one",
 			"col": Story.DUO_COL, "icon": hud.ICONS.get(d["needs"][0], "i_flame")}
+		var slots: Array = []
+		for i in opts.size():
+			if not opts[i].get("off", false):
+				slots.append(i)
+		if slots.is_empty():
+			opts.append(card)
+		else:
+			opts[slots[rng.randi() % slots.size()]] = card
+	if opts.is_empty():
+		return
 	var again := Callable()
 	if main.has_lamp("belltower") and reroll_depth != depth:
 		again = func():
 			reroll_depth = depth
 			_offer_boons(title, sub)
-	hud.show_choice(title, sub, opts, func(i): apply_boon(opts[i]["id"]), again, "Ring the bell: a fresh choice")
+	_show_offer("boon", title, sub, opts, func(i): apply_boon(opts[i]["id"]), again, "Ring the bell: a fresh choice")
+
+
+## Every offer of cards (kindlings, relics) goes through here, so the bots and
+## their tallies can see what was on the table. A bot picks through the
+## HUD's own auto-pick, like any other choice.
+func _show_offer(kind: String, title: String, sub: String, opts: Array, cb: Callable,
+		again: Callable = Callable(), again_label: String = "Back") -> void:
+	offer_kind = kind
+	offer.clear()
+	for o in opts:
+		offer.append(o["id"])
+	hud.show_choice(title, sub, opts, cb, again, again_label)
+
+
+## Whether a kindling may still be offered: not a one-time kindling Wren
+## already holds, not one stacked to its cap (Story.BOONS "max"), and not
+## Hollow Heart when it would leave her a single heart.
+func can_offer(b: Dictionary) -> bool:
+	var cap: int = 1 if b.get("unique", false) else int(b.get("max", 99))
+	if boons.count(b["id"]) >= cap:
+		return false
+	if b["id"] == "hollow" and max_hp <= 4:
+		return false
+	return true
+
+
+## How many kindlings Wren holds of each lantern aspect (Story.ASPECTS).
+func aspect_counts() -> Dictionary:
+	var out := {}
+	for a in Story.ASPECTS:
+		out[a] = 0
+	for b in Story.BOONS:
+		out[b["aspect"]] += boons.count(b["id"])
+	return out
+
+
+## n kindlings for an offer, as cards. With nothing taken yet, one of each
+## aspect, so the first pick chooses a road. After that the draw leans toward
+## the aspects Wren holds, but one card always comes from outside her leading
+## aspect, so a turn is still on the table. At most one bargain at a time.
+func draw_offer(n: int) -> Array:
+	var pool: Array = []
+	for b in Story.BOONS:
+		if can_offer(b):
+			pool.append(b)
+	var held := aspect_counts()
+	var lead := ""
+	for a in held:
+		if held[a] > 0 and (lead == "" or held[a] > held[lead]):
+			lead = a
+	var picked: Array = []
+	var off_id := ""
+	if lead == "":
+		for a in Story.ASPECTS:
+			_offer_take(picked, pool, _offer_of(pool, a, true))
+	else:
+		_offer_take(picked, pool, _offer_of(pool, lead, false))
+		if not picked.is_empty():
+			off_id = picked[0]["id"]
+	while picked.size() < n and not pool.is_empty():
+		_offer_take(picked, pool, _draw_leaning(pool, held))
+	picked = picked.slice(0, n)
+	# Shuffled, so the card from elsewhere is not always in the same place.
+	for i in range(picked.size() - 1, 0, -1):
+		var j := rng.randi() % (i + 1)
+		var tmp = picked[i]
+		picked[i] = picked[j]
+		picked[j] = tmp
+	var cards: Array = []
+	for b in picked:
+		var c := boon_card(b)
+		c["off"] = b["id"] == off_id
+		cards.append(c)
+	return cards
+
+
+func _offer_take(picked: Array, pool: Array, b: Dictionary) -> void:
+	if b.is_empty():
+		return
+	picked.append(b)
+	pool.erase(b)
+	if b.get("bargain", false):
+		for o in pool.duplicate():
+			if o.get("bargain", false):
+				pool.erase(o)
+
+
+## A random kindling from the pool that is (same) or is not (not same) of aspect a.
+func _offer_of(pool: Array, a: String, same: bool) -> Dictionary:
+	var c: Array = []
+	for b in pool:
+		if (b["aspect"] == a) == same:
+			c.append(b)
+	return {} if c.is_empty() else c[rng.randi() % c.size()]
+
+
+## A kindling drawn from the pool, weighted toward the aspects Wren holds.
+func _draw_leaning(pool: Array, held: Dictionary) -> Dictionary:
+	if pool.is_empty():
+		return {}
+	var total := 0.0
+	for b in pool:
+		total += 1.0 + ASPECT_PULL * mini(held[b["aspect"]], 3)
+	var r := rng.randf() * total
+	for b in pool:
+		r -= 1.0 + ASPECT_PULL * mini(held[b["aspect"]], 3)
+		if r <= 0.0:
+			return b
+	return pool[pool.size() - 1]
+
+
+## A kindling as an offer card: its Story entry, how many of it Wren already
+## holds against its cap, and whether taking it finishes a pair she has half
+## of (Story.DUOS) or starts one.
+func boon_card(b: Dictionary) -> Dictionary:
+	var o := b.duplicate()
+	var have := boons.count(b["id"])
+	if have > 0 and b.has("max"):
+		o["held"] = "%d of %d" % [have, int(b["max"])]
+	if have > 0:
+		return o
+	for d in Story.DUOS:
+		var needs: Array = d["needs"]
+		if boons.has(d["id"]) or not needs.has(b["id"]):
+			continue
+		var other: String = needs[1] if needs[0] == b["id"] else needs[0]
+		if boons.has(other):
+			o["hint"] = "Pairs with %s  >  %s" % [boon_name(other), d["name"]]
+			o["pairs"] = true
+			break
+		if not o.has("hint"):
+			o["hint"] = "Half of %s, with %s" % [d["name"], boon_name(other)]
+	return o
+
+
+func boon_name(id: String) -> String:
+	for b in Story.BOONS:
+		if b["id"] == id:
+			return b["name"]
+	return id
+
+
+# --- Relics ---------------------------------------------------------------------
+
+## The relics Wren does not carry yet, in Story.RELICS order.
+func relics_unowned() -> Array:
+	var out: Array = []
+	for r in Story.RELICS:
+		var id: String = r["power"]
+		if not (spare_match if id == "match" else powers[id]):
+			out.append(r)
+	return out
+
+
+## A relic stand: up to three of Maren's tools that Wren does not carry, and
+## she takes one. Each answers a different trouble, and whatever she passes
+## over waits on a deeper stand, so by the fourth depth she holds them all
+## whichever order she chose. With nothing left, the stand is a kindling cache.
+func _offer_relics() -> void:
+	var left := relics_unowned()
+	if left.is_empty():
+		_offer_boons("A cache of kindling", "Maren left these on her way down. Take one.")
+		return
+	for i in range(left.size() - 1, 0, -1):
+		var j := rng.randi() % (i + 1)
+		var tmp = left[i]
+		left[i] = left[j]
+		left[j] = tmp
+	left = left.slice(0, 3)
+	var opts: Array = []
+	for r in left:
+		opts.append({"id": r["power"], "name": r["name"], "desc": r["card"], "tag": r["role"],
+			"icon": r["icon"], "col": Color(1.0, 0.85, 0.5)})
+	var sub := "She left these on the stand. Take one; the others wait deeper down."
+	if left.size() == 1:
+		sub = "The last of them. Take it."
+	_show_offer("relic", "Maren's tools", sub, opts, func(i): take_relic(left[i]["power"]))
+
+
+func take_relic(id: String) -> void:
+	var rel: Dictionary = {}
+	for r in Story.RELICS:
+		if r["power"] == id:
+			rel = r
+	grant_power(id)
+	var how: String = "" if rel["key"] == "" else "\n\n[ Press %s to use it. ]" % rel["key"]
+	if pad != null and how != "":
+		how = "\n\n[ Its rune now sits by your right thumb. ]"
+	hud.dialog([["RELIC  -  " + (rel["name"] as String).to_upper(), rel["text"] + how]])
 
 
 func apply_boon(id: String) -> void:
@@ -2373,6 +2879,28 @@ func apply_boon(id: String) -> void:
 			stats["orbit"] += 2
 			stats["mote_k"] = 1.5
 			_sync_motes()
+		# Bargains: the gain, then the price.
+		"burnwick":
+			stats["bolt_dmg"] *= 1.6
+			stats["oil_regen"] *= 0.5
+		"pact":
+			stats["ember_k"] = 1.5
+			stats["xp_mult"] += 0.5
+			# Gloams come below 35% of the flask, not 20% (they melt above 40%).
+			stats["gloam_k"] = 1.75
+		"lens":
+			stats["power"] *= 1.5
+			stats["power_cost"] *= 1.4
+		"leaden":
+			stats["dmg"] *= 1.45
+			stats["speed"] *= 0.85
+		"hollow":
+			max_hp = maxi(2, max_hp - 2)
+			hp = clampi(hp, 1, max_hp)
+			stats["crit"] += 0.25
+		"moth_cloak":
+			stats["dash_len"] = 1.5
+			stats["frail"] = 1
 	for d in Story.DUOS:
 		if d["id"] == id:
 			main.tally("duos")
@@ -2399,15 +2927,18 @@ func _break_urn(p: Dictionary) -> void:
 	var pos: Vector2 = p["pos"]
 	Sfx.play("urn", -4.0, 0.15)
 	fx.spark(pos + Vector2(0, -4), Color(0.8, 0.55, 0.35), 10, 70.0, 0.4, 2.0, 160.0)
-	drop("cinder", pos, rng.randi_range(1, 3))
+	# Broken in the dark, an urn gives up more (loot_mult, up to twice).
+	var loot := loot_mult()
+	drop("cinder", pos, roundi(rng.randi_range(1, 3) * loot))
 	var roll := rng.randf()
-	if roll < 0.1:
+	if roll < 0.1 * loot:
 		drop("heart", pos)
-	elif roll < 0.3:
+	elif roll < 0.3 * loot:
 		drop("oil", pos)
 
 
 func _update_props(dt: float) -> void:
+	rooms.tick(dt)
 	near_prop = null
 	var bd := 26.0
 	for p in props:
@@ -2437,15 +2968,17 @@ func _update_props(dt: float) -> void:
 				p["spr"].texture = MothS.make_frames()[int(t * 12.0) % 2]
 				p["spr"].flip_h = cos(t * 2.3) < 0.0
 			"stairs":
-				p["glow"].visible = sealed
+				p["glow"].visible = rooms.stair_sealed(p)
 				p["glow"].modulate.a = 0.55 + 0.2 * sin(t * 4.0)
+			"shrine", "altar", "sign", "mark":
+				rooms.animate(p, near)
 			"cage":
 				var pulse := 1.0 + 0.12 * sin(t * 2.2) + 0.05 * sin(t * 7.0)
 				p["glow"].scale = Vector2(0.32, 0.32) * pulse
 				p["halo"].modulate.a = 0.4 + 0.15 * sin(t * 2.2)
 				if near and rng.randf() < dt * 8.0:
 					fx.spark(pos + Vector2(0, -6), Color(1.0, 0.8, 0.4, 0.9), 1, 14.0, 0.9, 1.5, -18.0)
-		if (p["done"] and p["type"] != "lamp") or not PROMPTS.has(p["type"]):
+		if (p["done"] and p["type"] != "lamp") or not (PROMPTS.has(p["type"]) or RoomsS.PROMPTS.has(p["type"])):
 			continue
 		if p["type"] == "cage" and not boss_dead:
 			continue
@@ -2456,8 +2989,12 @@ func _update_props(dt: float) -> void:
 
 
 func prompt_for(p: Dictionary) -> String:
-	if p["type"] == "stairs" and sealed:
+	if p["type"] == "stairs" and rooms.stair_sealed(p):
 		return "Sealed"
+	if p["type"] == "stairs" and p.has("route"):
+		return "Descend:  " + Story.ROUTES.get(p["route"], {"name": "another way"})["name"]
+	if RoomsS.PROMPTS.has(p["type"]):
+		return rooms.prompt_for(p)
 	if p["type"] == "lamp" and p["done"]:
 		return "Rest at the lamp  (save)"
 	return PROMPTS[p["type"]]
@@ -2476,17 +3013,23 @@ func interact() -> void:
 			Sfx.play("coins")
 			Sfx.play("jingle", -8.0)
 			fx.spark(pos + Vector2(0, -4), Color(1.0, 0.85, 0.4), 16, 70.0, 0.6, 2.0)
-			drop("cinder", pos + Vector2(0, 4), rng.randi_range(8, 13))
-			if rng.randf() < 0.5:
+			# Opened in the dark, a chest gives up more: at Dark, a heart and a
+			# flask for certain and twice the embers.
+			var loot := loot_mult()
+			if loot > 1.0:
+				hud.float_text(pos + Vector2(0, -16), "+%d%% in the dark" % roundi((loot - 1.0) * 100.0), Color(0.75, 0.65, 1.0))
+			drop("cinder", pos + Vector2(0, 4), roundi(rng.randi_range(8, 13) * loot))
+			if rng.randf() < 0.5 * loot:
 				drop("heart", pos + Vector2(0, 4))
-			if rng.randf() < 0.6:
+			if rng.randf() < 0.6 * loot:
 				drop("oil", pos + Vector2(0, 4))
 			if p.get("secret", false):
 				# A hollow-wall hoard: a heart for certain, and embers for the town.
 				drop("heart", pos + Vector2(4, 4))
 				drop("cinder", pos + Vector2(0, 4), 10)
-				main.bank(25)
-				hud.say("A hoard behind the wall. (+25 embers)", 3.5, hud.C_EMBER)
+				var hoard := roundi(25 * loot)
+				main.bank(hoard)
+				hud.say("A hoard behind the wall. (+%d embers)" % hoard, 3.5, hud.C_EMBER)
 		"lamp":
 			if main.has_lamp("maren"):
 				hp = max_hp
@@ -2547,24 +3090,21 @@ func interact() -> void:
 			Sfx.play("power", -4.0)
 			fx.spark(pos + Vector2(0, -12), Color(1.0, 0.85, 0.45), 30, 90.0, 0.8, 2.0)
 			cine(4.2, 1.0, pos + Vector2(0, -8))
-			if depth > Story.RELICS.size():
-				# Past the last relic, the stand holds a cache of kindling instead.
-				_offer_boons("A cache of kindling", "Maren left these on her way down. Take one.")
-				return
-			var rel: Dictionary = Story.RELICS[depth - 1]
-			grant_power(rel["power"])
-			var how: String = "" if rel["key"] == "" else "\n\n[ Press %s to use it. ]" % rel["key"]
-			if pad != null and how != "":
-				how = "\n\n[ Its rune now sits by your right thumb. ]"
-			hud.dialog([["RELIC  -  " + (rel["name"] as String).to_upper(), rel["text"] + how]])
+			_offer_relics()
 		"stairs":
-			if sealed:
+			if rooms.stair_sealed(p):
 				Sfx.play("thud", -8.0)
 				hud.say("Sealed. Something in this room still holds it shut.", 3.0, hud.C_EMBER)
 			else:
 				Sfx.play("stairs")
 				cine(4.6, 1.5, pos)
-				hud.fade_through(func(): load_floor(depth + 1))
+				# Which stair it was shapes the floor below.
+				var way: String = p.get("route", "")
+				hud.fade_through(func():
+					floor_route = way
+					load_floor(depth + 1))
+		"shrine", "cache", "hoard", "altar", "vgate":
+			rooms.interact(p)
 		"cage":
 			Sfx.play("ember")
 			hud.show_choice("Your hands now, Lampwright", "The latch is small and plain.", Story.CHOICE,
@@ -2582,8 +3122,10 @@ func cine(zoom: float, secs: float, at = null) -> void:
 		cine_pos = at
 
 
-## A quick punch in (positive) or out (negative) that settles by itself.
+## A quick punch in (positive) or out (negative) that settles by itself. It is
+## a jolt like the shake, so the shake setting tones it down too.
 func kick(a: float) -> void:
+	a *= shake_scale()
 	if absf(a) > absf(zoom_kick):
 		zoom_kick = a
 
@@ -2626,9 +3168,32 @@ func _update_camera(dt: float) -> void:
 		var z := cam_zoom * (1.0 + zoom_kick)
 		cam.zoom = Vector2(z, z)
 	cam.position = cam.position.lerp(target, 1.0 - exp(-dt * (4.5 if cine_t > 0.0 or talking else 9.0)))
-	shake = maxf(0.0, shake - dt * 22.0)
+	_update_shake(dt)
 	cam_punch = cam_punch.lerp(Vector2.ZERO, 1.0 - exp(-dt * 14.0))
-	cam.offset = Vector2(rng.randf_range(-1.0, 1.0), rng.randf_range(-1.0, 1.0)) * shake + cam_punch
+	cam.offset = shake_off + cam_punch
+
+
+## Drains the trauma and picks this frame's shake. The lean wanders smoothly
+## between fresh random points, thirty a second, rather than jumping every frame
+## (at 200 fps that is a blur, not a shake), and is rounded to whole art pixels:
+## the world picture then jumps cleanly by its own pixels, and only the camera's
+## smooth motions (following Wren, the punch) go through world_view's
+## leftover-fraction slide.
+func _update_shake(dt: float) -> void:
+	trauma = maxf(0.0, trauma - dt * TRAUMA_DECAY)
+	var amp: float = trauma * trauma * SHAKE_PX * shake_scale()
+	if amp < 0.5:
+		shake_off = Vector2.ZERO
+		return
+	_shake_clock += dt * SHAKE_HZ
+	if _shake_clock >= 1.0:
+		_shake_clock = fmod(_shake_clock, 1.0)
+		_shake_from = _shake_to
+		_shake_to = Vector2(_shake_rng.randf_range(-1.0, 1.0), _shake_rng.randf_range(-1.0, 1.0))
+	var n := _shake_from.lerp(_shake_to, _shake_clock)
+	if shake_axis != Vector2.ZERO:
+		n = shake_axis * n.x + shake_axis.orthogonal() * n.y * 0.3
+	shake_off = (n * amp).round()
 
 
 func _draw_decals() -> void:
@@ -2699,7 +3264,7 @@ func _boss_fell(e) -> void:
 	light_target = 1.0
 	slow_t = 1.5
 	cine(4.2, 2.6, e.position + Vector2(0, -12))
-	hitstop = 0.25
+	freeze(0.25, 0.25)
 	add_shake(12.0)
 	Sfx.play("boom")
 	Sfx.play("bell", 2.0, 0.0)
@@ -2719,6 +3284,7 @@ func _boss_fell(e) -> void:
 # --- Powers ---------------------------------------------------------------------
 
 func grant_power(id: String) -> void:
+	note_metric("relic:" + id)
 	if id == "match":
 		spare_match = true
 		return
@@ -2726,16 +3292,22 @@ func grant_power(id: String) -> void:
 	pcd[id] = 0.0
 
 
+## What a power costs in oil; the Cracked Lens bargain raises it.
+func power_cost(id: String) -> float:
+	return Story.POWERS[id]["cost"] * stats["power_cost"]
+
+
 func _power_ready(id: String) -> bool:
 	if dead or not powers[id] or pcd[id] > 0.0:
 		return false
-	var cost: float = Story.POWERS[id]["cost"]
+	var cost: float = power_cost(id)
 	if oil < cost:
 		hud.float_text(ppos + Vector2(0, -20), "no oil", Color(1.0, 0.5, 0.3))
 		Sfx.play("ui", 0.0)
 		pcd[id] = 0.3
 		return false
 	oil -= cost
+	note_metric("oil_power", cost)
 	pcd[id] = Story.POWERS[id]["cd"] * stats["cdr"]
 	return true
 
@@ -2771,7 +3343,7 @@ func _nova_burst(radius: float, dmg: float) -> void:
 	surf.ignite_at(ppos, radius * 0.7)
 	add_shake(7.0)
 	kick(-0.08)
-	hitstop = maxf(hitstop, 0.06)
+	freeze(0.06)
 	nova_flash = 1.0
 	Sfx.play("fire", 2.0)
 	Sfx.play("boom", -6.0)

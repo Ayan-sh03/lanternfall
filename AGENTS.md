@@ -21,10 +21,11 @@ Lanternfall is a dark-fantasy pixel-art dungeon crawler in Godot 4.3 (GL Compati
 - `game.gd`: one run. Floor generation (via `dungeon.gd`), player, enemies, shots, powers, pickups, fog of war, camera intent. `_process` calls `_tick(dt)` then `view.sync()`. Has a section profiler: `prof_on`, `prof`, `_pt(name, t0)`.
 - `enemy.gd`: foes (husk, moth, cantor, brute, slime/slimelet, wisp, gloam, the warden boss). `hurt(amount, kb, col, snd)` is the damage entry point; `snd` names the kind of blow (`hit`, `hit_heavy`, `crit`, `burn`...) so each sounds different.
 - `hud.gd` (CanvasLayer): full-resolution UI; labels over the world are placed with `game.screen_pos`. `touch.gd`: on-screen pad. `story.gd`: all the writing.
+- Teaching: `game.teach(id)` shows one of `Story.LESSONS` the first time its moment comes (looked for in `game._update_teach`, a few times a second) and records it in `profile["taught"]`; foes in sight go into `profile["seen"]`. `hud.lesson` draws it (never modal). The bestiary (`hud.show_codex`, from pause and town) reads `Story.FOES` and those two lists.
 - `fx.gd`: particles, arcs and rings, drawn with `_draw`. `surfaces.gd`: oil, fire, webs, water, slick. `echo.gd`, `moth.gd` (Flit), `nemesis.gd`: features.
 - `view3d.gd`: optional 3D renderer that watches the 2D state and re-draws it; game rules never run in 3D.
 - `sfx.gd`: autoload `Sfx`, see Audio. `art.gd`: static class holding every texture.
-- Tours and tests: `autotest.gd` (harness), `wildtest.gd`, `showcase.gd`, `showreel.gd`, `wildreel.gd`.
+- Tours and tests: `autotest.gd` (harness), `wildtest.gd`, `balance.gd` (bot balance runs), `showcase.gd`, `showreel.gd`, `wildreel.gd`.
 
 ## Rendering pipeline (world_view.gd)
 
@@ -42,7 +43,8 @@ The 2D world is drawn into a small `SubViewport` at one pixel per art pixel, the
 - Never call `texture.get_image()` at runtime: on GL Compatibility it reads back from the GPU and stalls 20-25 ms. Use `Art.image_of(tex)`, which returns the CPU image the art was built from. (Only the test harness and `--icons` do readbacks.)
 - Do not create a `ShaderMaterial` per object for one-off effects; share them (death ghosts use `Art.ghost_mat`). Enemies still own one material each for the hit flash.
 - Avoid per-frame allocations in `_tick`, `enemy.gd` and `fx.gd`. Keep work off the first-kill and first-spawn path (build or cache things when the floor loads).
-- Saves go through `main.gd`; the test harness uses slot 9 and deletes it.
+- Saves go through `main.gd`; the test harness uses slot 9 and deletes it. Each save carries `mode` (`main.mode`: `pilgrim` wakes at the last lamp, `descent` is permadeath and its slot is deleted on death; a save without it is a pilgrimage). Tests run as pilgrims unless they set `main.mode` first.
+- Hitstop goes through `game.freeze(t)`, never `hitstop = ...`: a frame's hits hold for the longest, not the sum, capped at `HITSTOP_CAP` and cut shorter after a run of freezes. Only Wren's own blows and blows on her freeze; kills look up `KILL_STOP` by the foe's `last_blow`. Shake goes through `game.add_shake(a, dir)`: trauma that stacks only to `TRAUMA_STACK`, rounded to whole art pixels, scaled by the profile's `shake` setting (0 off, 1 low, 2 full), which also scales `punch` and `kick`.
 
 ## Testing
 
@@ -52,7 +54,11 @@ There is no unit-test framework; `scripts/autotest.gd` is the harness. Run from 
 godot --path . -- --autotest --<mode> [--shotdir=<dir>]
 ```
 
+When several checkouts run tests at once, add `--savetag=<name>` so their save files (slot 9) stay apart.
+
 Modes (dispatched in `run()` near line 990): `--quick`, `--mechanics` (combat rules, parry etc.), `--progress` (profile, saves, upgrades), `--wild` (wildtest.gd, random play), `--ui` and `--anim` and `--sheet` (screenshots), `--touch`, `--icons` (rewrites `windows/icon.png`), `--view3d` (checks the 3D mouse aim projects back to the cursor, view switching, saves shots), `--perf`, `--perfab`, `--audio` (every cue named in the scripts resolves to a sound; voice limits hold). With no mode it plays every floor with a bot and saves screenshots to `--shotdir`.
+
+Balance statistics (`scripts/balance.gd`, not in CI: a full run takes about a minute of wall time): `godot --headless --path . --fixed-fps 60 -- --autotest --balance --runs=5 --savetag=stats [--depth=N] [--policy=random|first] [--skill=0..1] [--seed=N] [--lives=5] [--town=all] [--shotdir=<dir>]`. A bot plays whole descents from depth 1, fighting for real (`--skill=1`, the default, reacts instantly and parries every hex; 0.5 is slower, aims worse and misses parries); `--fixed-fps 60` lets it run as fast as the CPU allows (about 10x) in the same 60 fps steps as play. It prints `BAL` lines (win rate, run length, embers per run, per-depth time, hp lost and deaths, deadliest foes, oil spent, each kindling's pick rate and win rate when picked) and writes `balance.json`, `balance_runs.csv` and `balance_kindlings.csv` to `--shotdir` (or `user://balance/`). The game side is small: `game.note_metric(key, amount)` counts into `game.metrics` (null in play), and the HUD's auto mode asks `game.bot_choose(options)` which plaque to take. Count new things with `note_metric`; give new choices an `id` so they are tallied.
 
 - Results are printed lines tagged with the area (`MECH`, `VIEW3D`, `PERF`...); read them for `ok` / `FAIL` / `PASS`. `--view3d` ends with `VIEW3D PASS` or `VIEW3D FAIL n`.
 - Harmless noise at shutdown: "Unreferenced static string", "Pages in use exist at exit", "PagedAllocator".

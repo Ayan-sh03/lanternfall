@@ -578,10 +578,160 @@ static func build() -> void:
 		".kKKKKKKKKKKKk.",
 		"kkkkkkkkkkkkkkk",
 	], {"k": "30303e", "K": "7a7a94"}, false)
+	_build_rooms()
 
 
 	# --- Interface: carved stone, iron and chain, at the same pixel size as the world
 	_build_ui()
+
+
+## The furniture of set-aside rooms and the second stair: a shrine's cold flame,
+## an oil cache, a keeper's hoard, a cursed altar, a vault's gate, the sign
+## that says what waits below, and the sigils painted at their doors.
+static func _build_rooms() -> void:
+	var shrine_rows := [
+		".....tt.....",
+		"....tTTt....",
+		"....TWWT....",
+		".....TT.....",
+		"...kkkkkk...",
+		"..kSSSSSSk..",
+		"..kSssssSk..",
+		"...kSSSSk...",
+		"....kSSk....",
+		"....kSSk....",
+		"...kSggSk...",
+		"..kSSggSSk..",
+		".kSSSSSSSSk.",
+		".kkkkkkkkkk.",
+	]
+	_add("shrine", shrine_rows, {"t": "3fb8b0", "T": "8af0e0", "W": "e8fff8", "k": "24242e", "S": "6a6a80",
+		"s": "8a8aa4", "g": "8af0d0"}, true, "tTWg")
+	_add("shrine1", shrine_rows, {"k": "24242e", "S": "5a5a6c", "s": "6a6a80", "g": "3a5a58"})
+
+	var cache_rows := [
+		"...c...c...c..",
+		"..gGg.gGg.gGg.",
+		"..gog.gog.gog.",
+		".wwwwwwwwwwwww",
+		".wWWWWWWWWWWWw",
+		".wWkWWWWWWkWWw",
+		".wWWWWWyWWWWWw",
+		".wWWWWyyyWWWWw",
+		".wWkWWWyWWkWWw",
+		".wwwwwwwwwwwww",
+	]
+	_add("cache", cache_rows, {"c": "8a6a4a", "g": "5a7a8a", "G": "a8d0d8", "o": "ffa02a", "w": "4a2e1a",
+		"W": "96602e", "k": "1a1210", "y": "ffd24a"}, true, "oy")
+	_add("cache1", cache_rows.slice(3), {"w": "3a2414", "W": "6a4422", "k": "1a1210", "y": "6a4422"})
+
+	var hoard_pal := {"g": "c89a30", "Y": "ffe070", "I": "2c2c3a", "i": "4a4a60", "r": "ff8a2a", "k": "1a1210", "y": "fff6c8"}
+	_add("hoard0", [
+		"..gggggggggggg..",
+		".gIIIIIIIIIIIIg.",
+		".gIiiiiiiiiiiIg.",
+		"gggggggggggggggg",
+		"gIIIIIIrrIIIIIIg",
+		"gIiiiiirriiiiiIg",
+		"gIiiiiiiiiiiiiIg",
+		"gIIIIIIIIIIIIIIg",
+		"gggggggggggggggg",
+	], hoard_pal, true, "r")
+	_add("hoard1", [
+		"..gggggggggggg..",
+		".gkYkYYkYYkYkYg.",
+		".gYYyYYYyYYYyYg.",
+		"gggggggggggggggg",
+		"gIIIIIIIIIIIIIIg",
+		"gIiiiiiiiiiiiiIg",
+		"gIiiiiiiiiiiiiIg",
+		"gIIIIIIIIIIIIIIg",
+		"gggggggggggggggg",
+	], hoard_pal)
+
+	var altar_rows := [
+		"....rRRr....",
+		"...rRWWRr...",
+		"....rRRr....",
+		".....rr.....",
+		".kkkkkkkkkk.",
+		"kSSSSSSSSSSk",
+		"kSccSccSccSk",
+		".kSSSSSSSSk.",
+		"..kSScSSSk..",
+		"..kSSSSSSk..",
+		"..kSSSScSk..",
+		".kSSSSSSSSk.",
+		"kkkkkkkkkkkk",
+	]
+	_add("altar", altar_rows, {"r": "7a1020", "R": "e8384f", "W": "ffb0b8", "c": "c0303c", "S": "3a3040",
+		"k": "15151d"}, true, "rRWc")
+	_add("altar1", altar_rows.slice(4), {"c": "4a2028", "S": "302a36", "k": "15151d"})
+
+	_add("vgate", [
+		"kkkkkkkkkkkkkk",
+		"kIIIIIIIIIIIIk",
+		"kI.I.I..I.I.Ik",
+		"kI.I.I..I.I.Ik",
+		"kI.I.IggI.I.Ik",
+		"kI.I.gyyg.I.Ik",
+		"kI.I.gyyg.I.Ik",
+		"kI.I.IggI.I.Ik",
+		"kI.I.I..I.I.Ik",
+		"kI.I.I..I.I.Ik",
+		"kIIIIIIIIIIIIk",
+		"kkkkkkkkkkkkkk",
+	], {"k": "15151d", "I": "5a5a72", "g": "c89a30", "y": "ffe070"}, true, "y")
+
+	_add("sign", [
+		".kkkkkkkkkk.",
+		"kWWWWWWWWWWk",
+		"kWwwwwwwwwWk",
+		"kWwwwwwwwwWk",
+		"kWWWWWWWWWWk",
+		".kkkkkkkkkk.",
+		".....kk.....",
+		".....kk.....",
+		".....kk.....",
+		".....kk.....",
+		".....kk.....",
+		"....kKKk....",
+		"...kkkkkk...",
+	], {"W": "96602e", "w": "4a2e1a", "k": "20202a", "K": "62627a"})
+
+	# Drawn white and tinted by the room it marks.
+	_add("sigil", [
+		"....wwww....",
+		"..ww....ww..",
+		".w...ww...w.",
+		"w...w..w...w",
+		".w...ww...w.",
+		"..ww....ww..",
+		"....wwww....",
+	], {"w": "ffffff"}, false)
+
+	_add("ward", [
+		"..o..o..o..",
+		".oYo.Y.oYo.",
+		"..o.oYo.o..",
+		".o..oYo..o.",
+		"oYo.oYo.oYo",
+		".o..oYo..o.",
+		"..o.oYo.o..",
+		".oYo.Y.oYo.",
+		"..o..o..o..",
+	], {"o": "ff7a1f", "Y": "ffd24a"}, false)
+
+	_add("i_dark", [
+		"...vvvv..",
+		"..vVVv...",
+		".vVVv....",
+		".vVv.....",
+		".vVv...y.",
+		".vVVv....",
+		"..vVVv...",
+		"...vvvv..",
+	], {"v": "4a3a8a", "V": "9a8ae0", "y": "ffd24a"})
 
 
 ## Frames, niches, chains and upgrade icons for the menus. Everything is drawn
